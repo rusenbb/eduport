@@ -4,7 +4,15 @@ import re
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 class EntityType(str, Enum):
@@ -22,7 +30,11 @@ _WIKILINK_RE = re.compile(r"^\[\[([^\]\[]+)\]\]$")
 
 
 class WikiLink(BaseModel):
-    """A `[[target]]` reference. `target` is the filename stem (no .md, no brackets)."""
+    """A `[[target]]` reference. `target` is the filename stem (no .md, no brackets).
+
+    Round-trips through YAML/JSON as the bracketed string form so that the
+    surrounding entity's serialized frontmatter matches the on-disk text.
+    """
 
     model_config = ConfigDict(frozen=True)
     target: str
@@ -36,6 +48,10 @@ class WikiLink(BaseModel):
                 raise ValueError(f"Not a wikilink: {value!r}")
             return {"target": m.group(1).strip()}
         return value
+
+    @model_serializer
+    def _serialize(self) -> str:
+        return f"[[{self.target}]]"
 
     def __str__(self) -> str:
         return f"[[{self.target}]]"
