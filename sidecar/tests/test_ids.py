@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from eduport.ids import generate_id
 
 _PATTERN = re.compile(r"^[a-zA-Z0-9]{4}$")
@@ -35,3 +37,8 @@ def test_unique_across_many_calls():
         used.add(new_id)
 
     assert len(used) == 200
+
+
+def test_exhaustion_raises_runtime_error():
+    with pytest.raises(RuntimeError, match="100 attempts"):
+        generate_id(lambda _candidate: True)
