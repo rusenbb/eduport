@@ -51,3 +51,22 @@ def test_base_entity_rejects_unknown_field():
         BaseEntity.model_validate(
             {"tags": ["eduport-type/program"], "name": "X", "bogus_field": 1}
         )
+
+
+def test_base_entity_rejects_missing_type_tag():
+    with pytest.raises(ValidationError):
+        BaseEntity.model_validate({"tags": ["ai", "theory"], "name": "X"})
+    with pytest.raises(ValidationError):
+        BaseEntity.model_validate({"tags": [], "name": "X"})
+
+
+def test_user_tags_excludes_doctype_prefix():
+    obj = BaseEntity.model_validate({
+        "tags": [
+            "eduport-type/document",
+            "eduport-doctype/cv",
+            "ai",
+        ],
+        "name": "CV March 2026",
+    })
+    assert obj.user_tags() == ["ai"]

@@ -55,6 +55,7 @@ class EmailResource(BaseModel):
 
 
 _TYPE_PREFIX = "eduport-type/"
+_DOCTYPE_PREFIX = "eduport-doctype/"
 
 
 class BaseEntity(BaseModel):
@@ -70,9 +71,10 @@ class BaseEntity(BaseModel):
         raise ValueError("missing eduport-type/* tag")
 
     def user_tags(self) -> list[str]:
+        """Return tags excluding app-managed reserved prefixes (`eduport-type/*`, `eduport-doctype/*`)."""
         return [
             t for t in self.tags
-            if not t.startswith(_TYPE_PREFIX) and not t.startswith("eduport-doctype/")
+            if not t.startswith(_TYPE_PREFIX) and not t.startswith(_DOCTYPE_PREFIX)
         ]
 
     @field_validator("tags")
