@@ -1,7 +1,7 @@
 [project]
 name = "eduport"
 version = "0.1.0"
-description = "Add your description here"
+description = "Eduport sidecar — FastAPI service that parses, indexes, and serves Markdown+YAML entity files for the Eduport desktop app."
 authors = [
     { name = "rusenbb", email = "rusenbirben@gmail.com" }
 ]
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-eduport = "eduport:main"
+eduport-sidecar = "eduport.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.6,<0.10.0"]
