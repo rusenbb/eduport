@@ -70,3 +70,51 @@ def test_user_tags_excludes_doctype_prefix():
         "name": "CV March 2026",
     })
     assert obj.user_tags() == ["ai"]
+
+
+from eduport.models import Lab, Person, University
+
+
+def test_university_minimal():
+    u = University.model_validate({
+        "tags": ["eduport-type/university"],
+        "name": "ETH Zurich",
+        "country": "Switzerland",
+    })
+    assert u.country == "Switzerland"
+    assert u.links == []
+    assert u.emails == []
+
+
+def test_university_with_resources():
+    u = University.model_validate({
+        "tags": ["eduport-type/university"],
+        "name": "ETH",
+        "country": "CH",
+        "links": [{"label": "Admissions", "url": "https://ethz.ch/apply"}],
+        "emails": [{"label": "Info", "email": "info@ethz.ch"}],
+    })
+    assert len(u.links) == 1
+    assert u.emails[0].email == "info@ethz.ch"
+
+
+def test_lab_with_university_link():
+    lab = Lab.model_validate({
+        "tags": ["eduport-type/lab"],
+        "name": "MLG",
+        "university": "[[eth-zurich-K9p3]]",
+    })
+    assert lab.university and lab.university.target == "eth-zurich-K9p3"
+
+
+def test_person_full():
+    p = Person.model_validate({
+        "tags": ["eduport-type/person", "ai"],
+        "name": "Jane Doe",
+        "role": "Professor",
+        "email": "jane@example.com",
+        "university": "[[eth-zurich-K9p3]]",
+        "labs": ["[[mlg-B2n4]]"],
+    })
+    assert p.role == "Professor"
+    assert len(p.labs) == 1
