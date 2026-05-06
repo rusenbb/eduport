@@ -1,7 +1,17 @@
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
-from eduport.models import Lab, Person, University
+from eduport.models import (
+    Application,
+    ApplicationStatus,
+    Lab,
+    Level,
+    Person,
+    Program,
+    University,
+)
 from eduport.models.base import (
     BaseEntity,
     EmailResource,
@@ -116,3 +126,39 @@ def test_person_full():
     })
     assert p.role == "Professor"
     assert len(p.labs) == 1
+
+
+def test_program_full():
+    p = Program.model_validate({
+        "tags": ["eduport-type/program", "ai"],
+        "name": "MSc CS",
+        "level": "masters",
+        "deadline": "2026-12-15",
+        "university": "[[eth-zurich-K9p3]]",
+        "people": ["[[jane-doe-A4f2]]"],
+        "links": [{"label": "Page", "url": "https://x.example"}],
+    })
+    assert p.level == Level.masters
+    assert p.deadline == date(2026, 12, 15)
+    assert p.people[0].target == "jane-doe-A4f2"
+
+
+def test_program_invalid_level_rejected():
+    with pytest.raises(ValidationError):
+        Program.model_validate({
+            "tags": ["eduport-type/program"],
+            "name": "X",
+            "level": "bogus",
+        })
+
+
+def test_application_minimal():
+    a = Application.model_validate({
+        "tags": ["eduport-type/application"],
+        "name": "ETH 2026",
+        "program": "[[msc-cs-Q7w8]]",
+        "status": "drafting",
+    })
+    assert a.status == ApplicationStatus.drafting
+    assert a.documents == []
+    assert a.submitted_at is None
