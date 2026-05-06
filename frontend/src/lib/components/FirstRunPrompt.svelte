@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { putSettings } from '$lib/api/settings';
 	import { settings } from '$lib/stores/settings';
+	import { pickFolder } from '$lib/tauri';
 	import type { Settings } from '$lib/types';
 
 	let dataFolder = $state('');
 	let userEmail = $state('');
 	let saving = $state(false);
 	let error: string | null = $state(null);
+
+	async function browse() {
+		const picked = await pickFolder();
+		if (picked) dataFolder = picked;
+	}
 
 	async function save() {
 		error = null;
@@ -44,11 +50,20 @@
 
 		<label class="mt-5 block">
 			<span class="block text-xs uppercase tracking-wider text-[var(--color-muted)]">Data folder</span>
-			<input
-				bind:value={dataFolder}
-				placeholder="/Users/you/Documents/Eduport"
-				class="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-			/>
+			<div class="mt-1 flex gap-2">
+				<input
+					bind:value={dataFolder}
+					placeholder="/Users/you/Documents/Eduport"
+					class="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+				/>
+				<button
+					type="button"
+					class="rounded border border-[var(--color-border)] bg-white/5 px-3 py-2 text-xs hover:bg-white/10"
+					onclick={browse}
+				>
+					Browse…
+				</button>
+			</div>
 		</label>
 
 		<label class="mt-3 block">

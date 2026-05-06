@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { settings } from '$lib/stores/settings';
+	import { revealInFileManager } from '$lib/tauri';
 	import type { EntityDetail } from '$lib/types';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
@@ -15,6 +17,21 @@
 		onEditBody?: () => void;
 		onDelete?: () => void;
 	} = $props();
+
+	const isDocument = $derived(detail.type === 'document');
+	const filePath = $derived(detail.entity.file as string | undefined);
+
+	async function revealAttachment() {
+		if (!filePath || !$settings) return;
+		// Resolve the path relative to data_folder.
+		const root = $settings.data_folder.replace(/\/$/, '');
+		const abs = filePath.startsWith('/') ? filePath : `${root}/${filePath}`;
+		try {
+			await revealInFileManager(abs);
+		} catch (e) {
+			alert(`Reveal failed: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
 
 	const fields = $derived(
 		Object.entries(detail.entity).filter(([k]) => k !== 'name' && k !== 'tags')
@@ -45,6 +62,14 @@
 	<div class="flex flex-wrap gap-2 border-b border-[var(--color-border)] px-4 py-3 text-xs">
 		<button class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 hover:bg-white/10" onclick={onEditForm}>Edit form…</button>
 		<button class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 hover:bg-white/10" onclick={onEditBody}>Edit body…</button>
+		{#if isDocument && filePath}
+			<button
+				class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 hover:bg-white/10"
+				onclick={revealAttachment}
+			>
+				Reveal in file manager
+			</button>
+		{/if}
 		<button class="ml-auto rounded border border-red-900 bg-red-900/30 px-2 py-1 text-[var(--color-bad)] hover:bg-red-900/50" onclick={onDelete}>Delete</button>
 	</div>
 
