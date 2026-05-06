@@ -7,6 +7,7 @@
 	import { settings } from '$lib/stores/settings';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import { TYPE_LABELS } from '$lib/entities/meta';
+	import { confirmDestructive } from '$lib/tauri';
 	import EntityBodyEditor from './EntityBodyEditor.svelte';
 	import DetailPanel from './DetailPanel.svelte';
 	import EntityForm from './EntityForm.svelte';
@@ -83,7 +84,7 @@
 
 	async function handleDelete() {
 		if (!selected || !fileId) return;
-		if (($settings?.confirm_deletes ?? true) && !confirm(`Move "${selected.entity.name}" to trash?`)) return;
+		if (($settings?.confirm_deletes ?? true) && !(await confirmDestructive(`Move "${selected.entity.name}" to trash?`))) return;
 		try {
 			await deleteEntity(type, fileId);
 			selected = null;

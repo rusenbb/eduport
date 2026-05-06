@@ -127,3 +127,10 @@ export async function pickFolder(): Promise<string | null> {
 	if (typeof result === 'string') return result;
 	return null;
 }
+
+// window.confirm is a no-op in Tauri WebViews; route through plugin-dialog.
+export async function confirmDestructive(message: string, title = 'Eduport'): Promise<boolean> {
+	if (!isTauri()) return window.confirm(message);
+	const { ask } = await import('@tauri-apps/plugin-dialog');
+	return ask(message, { title, kind: 'warning' });
+}

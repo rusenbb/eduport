@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { deleteTrashItem, emptyTrash, listTrash, restoreTrashItem } from '$lib/api/trash';
 	import { settings } from '$lib/stores/settings';
+	import { confirmDestructive } from '$lib/tauri';
 	import type { TrashItem } from '$lib/types';
 
 	let items: TrashItem[] = $state([]);
@@ -25,13 +26,13 @@
 	}
 
 	async function remove(name: string) {
-		if (!confirm(`Permanently delete ${name}?`)) return;
+		if (!(await confirmDestructive(`Permanently delete ${name}?`))) return;
 		await deleteTrashItem(name);
 		await load();
 	}
 
 	async function clear() {
-		if (!confirm('Permanently empty trash?')) return;
+		if (!(await confirmDestructive('Permanently empty trash?'))) return;
 		await emptyTrash();
 		await load();
 	}
