@@ -131,7 +131,7 @@
 				<span class="text-xs uppercase tracking-wider text-[var(--color-muted)]">Theme</span>
 				<select
 					bind:value={draft.theme}
-					class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+					class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
 				>
 					<option value="system">System</option>
 					<option value="dark">Dark</option>
@@ -143,7 +143,7 @@
 				<select
 					value={String(draft.zoom_factor)}
 					onchange={(event) => (draft = { ...draft, zoom_factor: Number(event.currentTarget.value) })}
-					class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+					class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
 				>
 					{#each zoomOptions as option}
 						<option value={String(option.value)}>{option.label}</option>

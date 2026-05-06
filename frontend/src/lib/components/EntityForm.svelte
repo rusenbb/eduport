@@ -175,7 +175,7 @@
 								<select
 									value={stringValue(def.key)}
 									onchange={(event) => setString(def.key, event.currentTarget.value)}
-									class="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+									class="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
 								>
 									<option value="">Unset</option>
 									{#each def.options ?? [] as option}
