@@ -2,17 +2,22 @@
 	import { page } from '$app/state';
 	import { listEntities } from '$lib/api/entities';
 	import EntityList from '$lib/components/EntityList.svelte';
+	import EntityForm from '$lib/components/EntityForm.svelte';
 	import { filters } from '$lib/stores/filters';
 	import { ENTITY_TYPES, type EntityListItem, type EntityType } from '$lib/types';
-	import { onMount } from 'svelte';
+	import { getContext } from 'svelte';
+	import type { Writable } from 'svelte/store';
 
 	let items: EntityListItem[] = $state([]);
 	let loading = $state(true);
 	let error: string | null = $state(null);
+	let creating = $state(false);
 
 	const typeParam = $derived(page.params.type as string);
 	const isValidType = $derived((ENTITY_TYPES as string[]).includes(typeParam));
 	const type = $derived(typeParam as EntityType);
+
+	const newAction = getContext<Writable<{ label: string; onClick: () => void } | null>>('eduport:newAction');
 
 	async function load() {
 		loading = true;
@@ -27,14 +32,11 @@
 	}
 
 	$effect(() => {
-		// Re-fetch on type change or filters change
 		if (isValidType) {
+			newAction?.set({ label: `New ${type}`, onClick: () => (creating = true) });
 			void load();
 		}
-	});
-
-	onMount(() => {
-		// Mark `void` so the lint doesn't complain about an unused promise
+		return () => newAction?.set(null);
 	});
 </script>
 
@@ -46,4 +48,15 @@
 	<div class="p-8 text-center text-[var(--color-bad)]">Error: {error}</div>
 {:else}
 	<EntityList {items} {type} />
+{/if}
+
+{#if creating}
+	<EntityForm
+		{type}
+		onCancel={() => (creating = false)}
+		onDone={() => {
+			creating = false;
+			void load();
+		}}
+	/>
 {/if}

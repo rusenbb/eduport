@@ -3,11 +3,13 @@
 	import { page } from '$app/state';
 	import { deleteEntity, getEntity } from '$lib/api/entities';
 	import DetailPanel from '$lib/components/DetailPanel.svelte';
+	import EntityForm from '$lib/components/EntityForm.svelte';
 	import { ENTITY_TYPES, type EntityDetail, type EntityType } from '$lib/types';
 
 	let detail: EntityDetail | null = $state(null);
 	let loading = $state(true);
 	let error: string | null = $state(null);
+	let editing = $state(false);
 
 	const type = $derived(page.params.type as EntityType);
 	const fileId = $derived(page.params.fileId as string);
@@ -50,5 +52,23 @@
 {:else if error}
 	<div class="p-8 text-center text-[var(--color-bad)]">Error: {error}</div>
 {:else if detail}
-	<DetailPanel {detail} onDelete={handleDelete} />
+	<DetailPanel
+		{detail}
+		onEditForm={() => (editing = true)}
+		onEditBody={() => (editing = true)}
+		onDelete={handleDelete}
+	/>
+{/if}
+
+{#if editing && detail}
+	<EntityForm
+		{type}
+		{fileId}
+		initial={{ frontmatter: detail.entity, body: detail.body }}
+		onCancel={() => (editing = false)}
+		onDone={() => {
+			editing = false;
+			void load();
+		}}
+	/>
 {/if}
