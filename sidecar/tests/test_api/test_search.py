@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from eduport.index.writer import upsert_entity
 from eduport.models import University

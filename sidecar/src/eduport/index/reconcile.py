@@ -11,7 +11,7 @@ from eduport.index.writer import (
     record_parse_error,
     upsert_entity,
 )
-from eduport.parsers.entity import ParsedEntity, ParseError, parse_file
+from eduport.parsers.entity import ParseError, parse_file
 
 log = logging.getLogger("eduport.reconcile")
 
