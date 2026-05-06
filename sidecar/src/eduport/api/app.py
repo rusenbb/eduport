@@ -5,6 +5,7 @@ import sqlite3
 from fastapi import FastAPI
 
 from eduport.api.deps import AppState
+from eduport.api.entities import router as entities_router
 from eduport.api.health import router as health_router
 from eduport.settings import Settings
 from eduport.store.files import EntityFileStore
@@ -25,4 +26,5 @@ def build_app(
         trash=LocalTrash(settings.data_folder),
     )
     app.include_router(health_router)
+    app.include_router(entities_router)
     return app

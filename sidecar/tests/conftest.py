@@ -26,7 +26,10 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def conn(tmp_path: Path) -> sqlite3.Connection:
-    c = sqlite3.connect(tmp_path / "index.db")
+    # check_same_thread=False allows the FastAPI TestClient (which uses worker threads)
+    # to share the connection. Real production use is single-threaded inside the
+    # sidecar process, so this also matches how the app will run.
+    c = sqlite3.connect(tmp_path / "index.db", check_same_thread=False)
     init_schema(c)
     return c
 
