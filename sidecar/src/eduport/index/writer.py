@@ -5,7 +5,21 @@ import sqlite3
 from pathlib import Path
 
 from eduport.models import BaseEntity
-from eduport.parsers.wikilinks import extract_targets
+from eduport.parsers.wikilinks import extract_targets, resolve
+
+
+def resolve_links(conn: sqlite3.Connection) -> None:
+    candidates = [row[0] for row in conn.execute("SELECT file_id FROM entities")]
+    rows = conn.execute(
+        "SELECT src_file_id, field, target FROM entity_links"
+    ).fetchall()
+    conn.executemany(
+        "UPDATE entity_links SET resolved = ? WHERE src_file_id = ? AND field = ? AND target = ?",
+        [
+            (resolve(target, candidates), src_file_id, field, target)
+            for src_file_id, field, target in rows
+        ],
+    )
 
 
 def upsert_entity(
@@ -46,15 +60,17 @@ def upsert_entity(
         cur.execute("DELETE FROM entity_links WHERE src_file_id = ?", (file_id,))
         fm_payload = json.loads(fm_json)
         link_rows = []
+        candidates = [row[0] for row in cur.execute("SELECT file_id FROM entities")]
         for field, value in fm_payload.items():
             for target in extract_targets(value):
-                link_rows.append((file_id, field, target, None))
+                link_rows.append((file_id, field, target, resolve(target, candidates)))
         if link_rows:
             cur.executemany(
                 "INSERT OR IGNORE INTO entity_links(src_file_id, field, target, resolved) "
                 "VALUES (?, ?, ?, ?)",
                 link_rows,
             )
+        resolve_links(conn)
 
         cur.execute("DELETE FROM entities_fts WHERE rowid = ?", (rowid,))
         cur.execute(
@@ -79,6 +95,7 @@ def delete_entity(conn: sqlite3.Connection, file_id: str) -> None:
         cur.execute("DELETE FROM entities WHERE file_id = ?", (file_id,))
         cur.execute("DELETE FROM entity_tags WHERE file_id = ?", (file_id,))
         cur.execute("DELETE FROM entity_links WHERE src_file_id = ?", (file_id,))
+        resolve_links(conn)
         conn.commit()
     except Exception:
         conn.rollback()

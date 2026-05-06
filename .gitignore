@@ -27,6 +27,8 @@ node_modules/
 target/
 Cargo.lock
 src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 
 # Runtime — Eduport's own caches and ephemeral state
 .eduport-index.sqlite

@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
-import { apiFetch, ApiError } from '../api/client';
+import { ApiError } from '../api/client';
+import { getAppStatus } from '../api/status';
 
 export interface StatusState {
 	sidecarUp: boolean;
@@ -18,8 +19,8 @@ function createStatusStore() {
 
 	async function check() {
 		try {
-			await apiFetch('/health');
-			set({ sidecarUp: true, parseErrors: 0, lastChecked: Date.now() });
+			const appStatus = await getAppStatus();
+			set({ sidecarUp: true, parseErrors: appStatus.parse_errors, lastChecked: Date.now() });
 		} catch (err) {
 			set({
 				sidecarUp: !(err instanceof ApiError && err.status === 0),

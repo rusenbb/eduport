@@ -5,11 +5,13 @@
 		item,
 		type,
 		selected = false,
+		summary = item.file_id,
 		onclick
 	}: {
 		item: EntityListItem;
 		type: EntityType;
 		selected?: boolean;
+		summary?: string;
 		onclick?: () => void;
 	} = $props();
 </script>
@@ -21,7 +23,7 @@
 >
 	<div class="min-w-0">
 		<div class="truncate font-medium">{item.name}</div>
-		<div class="truncate text-xs text-[var(--color-muted)]">{item.file_id}</div>
+		<div class="truncate text-xs text-[var(--color-muted)]">{summary || item.file_id}</div>
 	</div>
 	<div class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">{type}</div>
 </button>

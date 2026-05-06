@@ -12,11 +12,39 @@ def test_settings_round_trip(tmp_path: Path):
         notes_folder="./notes",
         theme="dark",
         user_email="me@example.com",
+        zoom_factor=1.25,
+        obsidian_vault="Admissions",
     )
     config_file = tmp_path / "settings.toml"
     save_settings(settings, config_file)
     loaded = load_settings(config_file)
     assert loaded == settings
+
+
+def test_settings_defaults_new_desktop_fields(tmp_path: Path):
+    loaded = Settings.model_validate({
+        "data_folder": str(tmp_path),
+        "attachments_folder": "./attachments",
+        "notes_folder": "./notes",
+        "theme": "system",
+        "user_email": "x@x.com",
+    })
+
+    assert loaded.zoom_factor == 1.0
+    assert loaded.obsidian_vault is None
+    assert loaded.confirm_deletes is True
+
+
+def test_invalid_zoom_rejected(tmp_path: Path):
+    with pytest.raises(Exception):
+        Settings(
+            data_folder=tmp_path,
+            attachments_folder="./attachments",
+            notes_folder="./notes",
+            theme="system",
+            user_email="x@x.com",
+            zoom_factor=2.0,
+        )
 
 
 def test_load_missing_returns_none(tmp_path: Path):

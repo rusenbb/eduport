@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends
 
 from eduport.api.deps import AppState, get_state
-from eduport.settings import Settings
+from eduport.index.reconcile import reconcile
+from eduport.settings import Settings, save_settings
+from eduport.store.files import EntityFileStore
+from eduport.store.trash import LocalTrash
 
 router = APIRouter()
 
@@ -15,7 +18,17 @@ def get_settings(state: AppState = Depends(get_state)) -> dict:
 
 @router.put("/settings")
 def put_settings(payload: Settings, state: AppState = Depends(get_state)) -> dict:
+    data_folder_changed = payload.data_folder != state.settings.data_folder
+    payload.data_folder.mkdir(parents=True, exist_ok=True)
+    payload.resolved_attachments_folder().mkdir(parents=True, exist_ok=True)
+    payload.resolved_notes_folder().mkdir(parents=True, exist_ok=True)
+    if state.settings_path is not None:
+        save_settings(payload, state.settings_path)
     state.settings = payload
+    if data_folder_changed:
+        state.file_store = EntityFileStore(payload.data_folder)
+        state.trash = LocalTrash(payload.data_folder)
+        reconcile(state.conn, payload.data_folder)
     out = payload.model_dump(mode="json")
     out["data_folder"] = str(out["data_folder"])
     return out

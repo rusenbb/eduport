@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { putSettings } from '$lib/api/settings';
 	import { settings } from '$lib/stores/settings';
-	import { pickFolder } from '$lib/tauri';
+	import { status } from '$lib/stores/status';
+	import { bootstrapSettings, isTauri, pickFolder } from '$lib/tauri';
 	import type { Settings } from '$lib/types';
 
 	let dataFolder = $state('');
@@ -25,12 +26,16 @@
 			attachments_folder: './attachments',
 			notes_folder: './notes',
 			theme: 'system',
-			user_email: userEmail.trim()
+			user_email: userEmail.trim(),
+			zoom_factor: 1,
+			obsidian_vault: null,
+			confirm_deletes: true
 		};
 		saving = true;
 		try {
-			const result = await putSettings(payload);
+			const result = isTauri() ? (await bootstrapSettings(payload), payload) : await putSettings(payload);
 			settings.set(result);
+			await status.check();
 			location.reload();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);

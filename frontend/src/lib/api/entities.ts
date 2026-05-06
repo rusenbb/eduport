@@ -10,6 +10,10 @@ export function getEntity(type: EntityType, fileId: string): Promise<EntityDetai
 	return apiFetch(`/entities/${type}/${encodeURIComponent(fileId)}`);
 }
 
+export function resolveEntity(target: string): Promise<{ file_id: string; type: EntityType; name: string }> {
+	return apiFetch(`/entities/resolve/${encodeURIComponent(target)}`);
+}
+
 export function createEntity(
 	type: EntityType,
 	frontmatter: Record<string, unknown>,

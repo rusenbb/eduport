@@ -7,7 +7,7 @@
     "frontendDist": "../frontend/build",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm --prefix frontend run dev",
-    "beforeBuildCommand": "npm --prefix frontend run build"
+    "beforeBuildCommand": "node ../scripts/build_tauri_prereqs.mjs"
   },
   "app": {
     "windows": [
@@ -26,6 +26,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/eduport-sidecar"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

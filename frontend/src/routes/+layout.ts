@@ -6,10 +6,21 @@ export const prerender = false;
 import { getSettings } from '$lib/api/settings';
 import { settings } from '$lib/stores/settings';
 import { status } from '$lib/stores/status';
+import { ensureSidecarUrl, getBootstrapStatus } from '$lib/tauri';
 import type { LayoutLoad } from './$types';
 
 export const load: LayoutLoad = async () => {
-	status.startPolling();
+	try {
+		const bootstrap = await getBootstrapStatus();
+		if (bootstrap && !bootstrap.settings_exists) {
+			return { hasSettings: false };
+		}
+		await ensureSidecarUrl();
+		status.startPolling();
+	} catch {
+		status.startPolling();
+		// If the shell cannot start the sidecar, the status banner handles it below.
+	}
 	try {
 		const s = await getSettings();
 		settings.set(s);

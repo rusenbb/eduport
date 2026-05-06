@@ -1,7 +1,9 @@
 import { apiFetch } from './client';
 import type { SearchHit } from '../types';
 
-export function search(q: string, limit = 50): Promise<SearchHit[]> {
+export function search(q: string, limit = 50, tags: string[] = []): Promise<SearchHit[]> {
 	if (!q.trim()) return Promise.resolve([]);
-	return apiFetch(`/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+	const qs = new URLSearchParams({ q, limit: String(limit) });
+	for (const tag of tags) qs.append('tag', tag);
+	return apiFetch(`/search?${qs.toString()}`);
 }

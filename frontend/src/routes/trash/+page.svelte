@@ -1,19 +1,87 @@
 <script lang="ts">
-	// Trash UI is deferred until the sidecar grows /trash list + restore endpoints.
-	// For now, point the user at the data folder via a friendly message.
+	import { deleteTrashItem, emptyTrash, listTrash, restoreTrashItem } from '$lib/api/trash';
 	import { settings } from '$lib/stores/settings';
+	import type { TrashItem } from '$lib/types';
+
+	let items: TrashItem[] = $state([]);
+	let loading = $state(true);
+	let error: string | null = $state(null);
+
+	async function load() {
+		loading = true;
+		error = null;
+		try {
+			items = await listTrash();
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function restore(name: string) {
+		await restoreTrashItem(name);
+		await load();
+	}
+
+	async function remove(name: string) {
+		if (!confirm(`Permanently delete ${name}?`)) return;
+		await deleteTrashItem(name);
+		await load();
+	}
+
+	async function clear() {
+		if (!confirm('Permanently empty trash?')) return;
+		await emptyTrash();
+		await load();
+	}
+
+	$effect(() => {
+		void load();
+	});
 </script>
 
-<main class="p-6">
-	<h1 class="mb-4 text-2xl font-semibold">Trash</h1>
-	<p class="text-sm text-[var(--color-muted)]">
-		Deleted entities are moved to <code class="rounded bg-white/5 px-1 py-0.5">.eduport-trash/</code>
-		inside your data folder. v1 doesn't have an in-app restore UI yet — open the folder in your
-		file manager to restore manually.
-	</p>
-	{#if $settings}
-		<p class="mt-3 text-xs text-[var(--color-muted)]">
-			Path: <code>{$settings.data_folder}/.eduport-trash/</code>
-		</p>
+<main class="flex h-full flex-col overflow-hidden p-6">
+	<header class="mb-4 flex items-start justify-between gap-4">
+		<div>
+			<h1 class="text-2xl font-semibold">Trash</h1>
+			{#if $settings}
+				<p class="mt-1 text-xs text-[var(--color-muted)]">
+					Path: <code>{$settings.data_folder}/.eduport-trash/</code>
+				</p>
+			{/if}
+		</div>
+		{#if items.length > 0}
+			<button class="rounded border border-red-900 bg-red-900/30 px-3 py-1.5 text-xs text-[var(--color-bad)] hover:bg-red-900/50" onclick={clear}>
+				Empty trash
+			</button>
+		{/if}
+	</header>
+
+	{#if loading}
+		<div class="p-8 text-center text-[var(--color-muted)]">Loading...</div>
+	{:else if error}
+		<div class="p-8 text-center text-[var(--color-bad)]">{error}</div>
+	{:else if items.length === 0}
+		<div class="p-8 text-center text-[var(--color-muted)]">Trash is empty.</div>
+	{:else}
+		<div class="min-h-0 flex-1 overflow-auto border-y border-[var(--color-border)]">
+			{#each items as item}
+				<div class="grid grid-cols-[1fr_auto] gap-3 border-b border-[var(--color-border)] px-3 py-3 text-sm last:border-b-0">
+					<div class="min-w-0">
+						<div class="truncate font-medium">{item.name}</div>
+						<div class="truncate text-xs text-[var(--color-muted)]">{item.original_path ?? item.path}</div>
+					</div>
+					<div class="flex items-center gap-2">
+						<button class="rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-white/5" onclick={() => restore(item.name)}>
+							Restore
+						</button>
+						<button class="rounded border border-red-900 px-2 py-1 text-xs text-[var(--color-bad)] hover:bg-red-900/30" onclick={() => remove(item.name)}>
+							Delete
+						</button>
+					</div>
+				</div>
+			{/each}
+		</div>
 	{/if}
 </main>

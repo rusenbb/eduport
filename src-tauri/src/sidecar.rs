@@ -1,5 +1,7 @@
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Runtime};
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 /// Pick a free localhost port. We bind a TcpListener, read its port, and drop the
 /// listener — there's a tiny race window where another process could grab the port,
@@ -11,22 +13,30 @@ fn pick_free_port() -> std::io::Result<u16> {
 }
 
 pub struct SidecarHandle {
-    pub child: Child,
+    pub child: CommandChild,
     pub port: u16,
 }
 
-pub fn spawn_sidecar() -> Result<SidecarHandle, String> {
+pub fn spawn_sidecar<R: Runtime>(
+    app: &AppHandle<R>,
+    settings_path: &Path,
+) -> Result<SidecarHandle, String> {
     let port = pick_free_port().map_err(|e| format!("failed to pick port: {e}"))?;
+    let port_arg = port.to_string();
+    let settings_arg = settings_path.to_string_lossy().into_owned();
 
-    let child = Command::new("eduport-sidecar")
-        .arg("--port")
-        .arg(port.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+    let (_rx, child) = app
+        .shell()
+        .sidecar("eduport-sidecar")
+        .map_err(|e| format!("failed to locate bundled sidecar: {e}"))?
+        .args([
+            "--port",
+            port_arg.as_str(),
+            "--settings",
+            settings_arg.as_str(),
+        ])
         .spawn()
-        .map_err(|e| format!(
-            "failed to spawn eduport-sidecar (is it on PATH?): {e}"
-        ))?;
+        .map_err(|e| format!("failed to spawn bundled sidecar: {e}"))?;
 
     Ok(SidecarHandle { child, port })
 }
@@ -47,7 +57,6 @@ pub fn wait_for_health(port: u16, timeout: Duration) -> Result<(), String> {
     ))
 }
 
-pub fn kill_sidecar(handle: &mut SidecarHandle) {
+pub fn kill_sidecar(handle: SidecarHandle) {
     let _ = handle.child.kill();
-    let _ = handle.child.wait();
 }

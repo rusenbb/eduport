@@ -1,16 +1,19 @@
 <script lang="ts">
-	import type { EntityListItem, EntityType } from '$lib/types';
+	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
+	import { summarizeItem } from '$lib/entities/meta';
 	import EntityRow from './EntityRow.svelte';
 	import { goto } from '$app/navigation';
 
 	let {
 		items,
 		type,
-		selectedFileId
+		selectedFileId,
+		details = {}
 	}: {
 		items: EntityListItem[];
 		type: EntityType;
 		selectedFileId?: string;
+		details?: Record<string, EntityDetail | null>;
 	} = $props();
 </script>
 
@@ -28,6 +31,7 @@
 				{item}
 				{type}
 				selected={item.file_id === selectedFileId}
+				summary={summarizeItem(item, details[item.file_id])}
 				onclick={() => goto(`/${type}/${item.file_id}`)}
 			/>
 		{/each}

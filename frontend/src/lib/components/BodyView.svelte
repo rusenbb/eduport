@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { renderMarkdown } from '$lib/markdown';
 	import { toggleCheckbox } from '$lib/api/checkbox';
+	import { resolveEntity } from '$lib/api/entities';
 
 	let {
 		body,
@@ -14,18 +15,26 @@
 	} = $props();
 
 	const rendered = $derived(renderMarkdown(body));
+	let container: HTMLDivElement;
 
-	function onClick(event: MouseEvent) {
+	$effect(() => {
+		if (!container) return;
+		container.addEventListener('click', onClick);
+		return () => container.removeEventListener('click', onClick);
+	});
+
+	async function onClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
 		if (target.tagName === 'A' && target.classList.contains('wikilink')) {
 			event.preventDefault();
 			const t = target.getAttribute('data-target');
 			if (t) {
-				// We don't know the target type cheaply; default to a generic redirect that the
-				// list page can handle. For v1 we just route to /university/<t> and rely on
-				// the user clicking through if it's wrong. A future task can resolve via the
-				// entity_links table.
-				goto(`/university/${encodeURIComponent(t)}`);
+				try {
+					const resolved = await resolveEntity(t);
+					goto(`/${resolved.type}/${encodeURIComponent(resolved.file_id)}`);
+				} catch {
+					goto(`/note/${encodeURIComponent(t)}`);
+				}
 			}
 		}
 	}
@@ -49,7 +58,7 @@
 	}
 </script>
 
-<div class="prose prose-invert max-w-none text-sm" onclick={onClick} role="document">
+<div bind:this={container} class="prose prose-invert max-w-none text-sm" role="document">
 	{#if rendered.checkboxes.length > 0}
 		<ul class="not-prose mb-4 list-none space-y-1 pl-0">
 			{#each rendered.checkboxes as cb}

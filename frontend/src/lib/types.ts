@@ -32,11 +32,14 @@ export interface EntityListItem {
 export interface Backlink {
 	src_file_id: string;
 	field: string;
+	type?: EntityType;
+	name?: string;
 }
 
 export interface EntityDetail {
 	file_id: string;
 	type: EntityType;
+	path?: string;
 	entity: Record<string, unknown>;
 	body: string;
 	backlinks: Backlink[];
@@ -64,6 +67,29 @@ export interface Settings {
 	notes_folder: string;
 	theme: 'system' | 'light' | 'dark';
 	user_email: string;
+	zoom_factor: number;
+	obsidian_vault?: string | null;
+	confirm_deletes: boolean;
+}
+
+export interface TrashItem {
+	name: string;
+	path: string;
+	original_path: string | null;
+	size: number;
+	modified: string | null;
+}
+
+export interface ParseErrorItem {
+	path: string;
+	message: string;
+	occurred_at: string;
+}
+
+export interface AppStatus {
+	status: 'ok';
+	parse_errors: number;
+	entities: number;
 }
 
 export interface ParsedEml {

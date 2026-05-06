@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from eduport.api.deps import AppState, get_state
+from eduport.index.writer import upsert_entity
+from eduport.parsers.entity import ParseError, parse_file
 
 router = APIRouter()
 
@@ -46,4 +48,14 @@ def toggle(payload: ToggleIn, state: AppState = Depends(get_state)) -> dict:
     new_text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
     path.write_text(new_text, encoding="utf-8")
     state.file_store.delete_marker(path)
+    result = parse_file(path)
+    if not isinstance(result, ParseError):
+        upsert_entity(
+            state.conn,
+            file_id=path.stem,
+            path=path,
+            mtime_ns=path.stat().st_mtime_ns,
+            entity=result.entity,
+            body=result.body,
+        )
     return {"ok": True}

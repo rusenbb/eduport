@@ -43,6 +43,12 @@ def test_get_one(seeded_client):
     assert "backlinks" in body
 
 
+def test_resolve_entity(seeded_client):
+    response = seeded_client.get("/entities/resolve/eth-K9p3")
+    assert response.status_code == 200
+    assert response.json()["type"] == "university"
+
+
 def test_get_missing_returns_404(client):
     response = client.get("/entities/university/ghost-Z9z9")
     assert response.status_code == 404

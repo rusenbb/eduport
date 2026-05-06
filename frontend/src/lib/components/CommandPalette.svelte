@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { listEntities } from '$lib/api/entities';
 	import { search } from '$lib/api/search';
-	import type { SearchHit } from '$lib/types';
+	import { filters } from '$lib/stores/filters';
+	import { tick } from 'svelte';
+	import { ENTITY_TYPES, type SearchHit } from '$lib/types';
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -11,6 +14,7 @@
 	let loading = $state(false);
 
 	let debounce: ReturnType<typeof setTimeout> | null = null;
+	let inputEl = $state<HTMLInputElement>();
 
 	$effect(() => {
 		if (!open) {
@@ -19,10 +23,12 @@
 			activeIndex = 0;
 			return;
 		}
+		tick().then(() => inputEl?.focus());
 	});
 
 	$effect(() => {
 		if (debounce !== null) clearTimeout(debounce);
+		const activeTags = $filters.tags;
 		const q = query.trim();
 		if (q.length === 0) {
 			hits = [];
@@ -31,7 +37,17 @@
 		loading = true;
 		debounce = setTimeout(async () => {
 			try {
-				hits = await search(q, 20);
+				const words = q.split(/\s+/).filter(Boolean);
+				if (words.length <= 2) {
+					const lists = await Promise.all(ENTITY_TYPES.map((type) => listEntities(type, activeTags).catch(() => [])));
+					hits = lists
+						.flat()
+						.filter((item) => `${item.name} ${item.file_id}`.toLowerCase().includes(q.toLowerCase()))
+						.slice(0, 20)
+						.map((item) => ({ file_id: item.file_id, type: item.type, name: item.name, snippet: item.file_id }));
+				} else {
+					hits = await search(q, 20, activeTags);
+				}
 				activeIndex = 0;
 			} catch {
 				hits = [];
@@ -67,18 +83,24 @@
 </script>
 
 {#if open}
-	<div class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]" onclick={close} role="presentation">
+	<div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" role="presentation">
+		<button
+			type="button"
+			class="absolute inset-0 bg-black/60"
+			aria-label="Close command palette"
+			onclick={close}
+		></button>
 		<div
-			class="flex w-[640px] max-w-[90vw] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl"
-			onclick={(e) => e.stopPropagation()}
+			class="relative flex w-[640px] max-w-[90vw] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl"
 			role="dialog"
+			tabindex="-1"
 		>
 			<input
+				bind:this={inputEl}
 				bind:value={query}
 				onkeydown={onKey}
 				placeholder="Search across all entities…"
 				class="border-b border-[var(--color-border)] bg-transparent px-4 py-3 text-sm outline-none"
-				autofocus
 			/>
 			<div class="max-h-[50vh] overflow-auto">
 				{#if loading}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sqlite3
 import sys
 from pathlib import Path
@@ -17,8 +18,10 @@ from eduport.settings import load_settings
 def _index_path(data_folder: Path) -> Path:
     cache_dir = Path(platformdirs.user_cache_dir("Eduport", appauthor=False))
     cache_dir.mkdir(parents=True, exist_ok=True)
-    folder_hash = abs(hash(str(data_folder.resolve()))) % (2**32)
-    return cache_dir / f"index-{folder_hash:08x}.sqlite"
+    folder_hash = hashlib.sha256(
+        str(data_folder.resolve()).encode("utf-8")
+    ).hexdigest()[:12]
+    return cache_dir / f"index-{folder_hash}.sqlite"
 
 
 def _log_path() -> Path:
@@ -36,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="eduport-sidecar")
     parser.add_argument("--port", type=int, default=0, help="bind port (0 = random)")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--settings", type=Path, default=None, help="override settings path")
+    parser.add_argument(
+        "--settings", type=Path, default=None, help="override settings path"
+    )
     args = parser.parse_args(argv)
 
     configure_logging(_log_path())
@@ -51,6 +56,12 @@ def main(argv: list[str] | None = None) -> int:
     conn = sqlite3.connect(_index_path(settings.data_folder), check_same_thread=False)
     init_schema(conn)
 
-    app = build_app(settings=settings, conn=conn, start_watcher=True, run_reconcile=True)
+    app = build_app(
+        settings=settings,
+        conn=conn,
+        settings_path=settings_file,
+        start_watcher=True,
+        run_reconcile=True,
+    )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

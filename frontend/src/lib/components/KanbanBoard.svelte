@@ -3,6 +3,8 @@
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
 	import type { ApplicationStatus, EntityListItem } from '$lib/types';
 
+	let { onPick }: { onPick?: (fileId: string) => void } = $props();
+
 	const statuses: ApplicationStatus[] = [
 		'planning',
 		'drafting',
@@ -100,7 +102,7 @@
 							class="rounded border border-[var(--color-border)] bg-white/5 p-2 text-left text-sm hover:border-[var(--color-accent)]"
 							draggable={true}
 							ondragstart={(e) => dragStart(item.file_id, status, e)}
-							onclick={() => goto(`/application/${item.file_id}`)}
+							onclick={() => (onPick ? onPick(item.file_id) : goto(`/application/${item.file_id}`))}
 						>
 							<div class="truncate font-medium">{item.name}</div>
 							<div class="truncate text-xs text-[var(--color-muted)]">{item.file_id}</div>

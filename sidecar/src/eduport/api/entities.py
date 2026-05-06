@@ -36,6 +36,20 @@ def list_(
     return list_entities(state.conn, type=type_, tags=tag or [])
 
 
+@router.get("/resolve/{target}")
+def resolve_target(target: str, state: AppState = Depends(get_state)) -> dict:
+    candidates = [row[0] for row in state.conn.execute("SELECT file_id FROM entities")]
+    from eduport.parsers.wikilinks import resolve
+
+    file_id = resolve(target, candidates)
+    if file_id is None:
+        raise HTTPException(status_code=404, detail="not found")
+    row = state.conn.execute(
+        "SELECT type, name FROM entities WHERE file_id = ?", (file_id,)
+    ).fetchone()
+    return {"file_id": file_id, "type": row[0], "name": row[1]}
+
+
 @router.get("/{type_}/{file_id}")
 def get_one(
     type_: str,
@@ -44,7 +58,7 @@ def get_one(
 ) -> dict:
     type_ = _validate_type(type_)
     row = state.conn.execute(
-        "SELECT type, name, body, frontmatter FROM entities WHERE file_id = ? AND type = ?",
+        "SELECT type, name, path, body, frontmatter FROM entities WHERE file_id = ? AND type = ?",
         (file_id, type_),
     ).fetchone()
     if row is None:
@@ -52,8 +66,9 @@ def get_one(
     return {
         "file_id": file_id,
         "type": row[0],
-        "entity": json.loads(row[3]),
-        "body": row[2],
+        "path": row[2],
+        "entity": json.loads(row[4]),
+        "body": row[3],
         "backlinks": backlinks(state.conn, file_id),
     }
 

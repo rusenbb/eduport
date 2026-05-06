@@ -56,9 +56,6 @@ def test_search_body(conn):
 
 
 def test_backlinks(conn):
-    conn.execute(
-        "UPDATE entity_links SET resolved = target WHERE src_file_id = 'msc-Q7w8'"
-    )
     incoming = backlinks(conn, "jane-A4f2")
     assert [b["src_file_id"] for b in incoming] == ["msc-Q7w8"]
     assert incoming[0]["field"] == "people"

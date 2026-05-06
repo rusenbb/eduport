@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { inferTypeFromField, targetOf } from '$lib/entities/meta';
 	import { filters } from '$lib/stores/filters';
 
 	let { name, value }: { name: string; value: unknown } = $props();
@@ -8,32 +9,15 @@
 		return typeof v === 'string' && /^\[\[[^\]\[]+\]\]$/.test(v);
 	}
 
-	function targetOf(link: string): string {
-		return link.slice(2, -2).trim();
-	}
-
-	function inferTypeFromTarget(target: string): string {
-		// Crude: look at the field name to infer the entity type for routing.
-		// Falls back to 'university' which always renders.
-		const map: Record<string, string> = {
-			university: 'university',
-			labs: 'lab',
-			people: 'person',
-			program: 'program',
-			recommender: 'person',
-			related_program: 'program',
-			related_application: 'application',
-			related_people: 'person',
-			documents: 'document',
-			attachments: 'document',
-			in_reply_to: 'email'
-		};
-		return map[name] ?? 'university';
-	}
-
 	function navigate(link: string) {
-		const t = inferTypeFromTarget(targetOf(link));
-		goto(`/${t}/${encodeURIComponent(targetOf(link))}`);
+		const target = targetOf(link);
+		if (!target) return;
+		const t = inferTypeFromField(name);
+		goto(`/${t}/${encodeURIComponent(target)}`);
+	}
+
+	async function copy(text: string) {
+		await navigator.clipboard?.writeText(text).catch(() => {});
 	}
 </script>
 
@@ -42,7 +26,7 @@
 	<div class="mt-1 text-sm">
 		{#if isWikilink(value)}
 			<button class="text-[var(--color-accent)] hover:underline" onclick={() => navigate(value as string)}>
-				{targetOf(value as string)}
+				{targetOf(value)}
 			</button>
 		{:else if Array.isArray(value)}
 			{#if value.length === 0}
@@ -55,12 +39,25 @@
 								class="rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-0.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
 								onclick={() => navigate(v as string)}
 							>
-								{targetOf(v as string)}
+								{targetOf(v)}
 							</button>
 						{:else if typeof v === 'object' && v !== null}
-							<span class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs">
-								{JSON.stringify(v)}
-							</span>
+							<div class="flex items-center gap-1 rounded border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs">
+								{#if 'url' in v && typeof v.url === 'string'}
+									<a href={v.url} target="_blank" rel="noopener" class="text-[var(--color-accent)] hover:underline">
+										{'label' in v ? v.label : v.url}
+									</a>
+								{:else if 'email' in v && typeof v.email === 'string'}
+									<a href={`mailto:${v.email}`} class="text-[var(--color-accent)] hover:underline">
+										{'label' in v ? v.label : v.email}
+									</a>
+									<button class="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-text)]" onclick={() => copy(v.email)}>
+										Copy
+									</button>
+								{:else}
+									<span>{JSON.stringify(v)}</span>
+								{/if}
+							</div>
 						{:else if name === 'tags' && typeof v === 'string'}
 							<button
 								class="rounded-full border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs hover:bg-white/10"
