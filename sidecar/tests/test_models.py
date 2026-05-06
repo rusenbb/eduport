@@ -6,8 +6,13 @@ from pydantic import ValidationError
 from eduport.models import (
     Application,
     ApplicationStatus,
+    Document,
+    DocumentStatus,
+    Email,
+    EmailDirection,
     Lab,
     Level,
+    Note,
     Person,
     Program,
     University,
@@ -162,3 +167,54 @@ def test_application_minimal():
     assert a.status == ApplicationStatus.drafting
     assert a.documents == []
     assert a.submitted_at is None
+
+
+def test_document_received_default():
+    d = Document.model_validate({
+        "tags": ["eduport-type/document", "eduport-doctype/cv"],
+        "name": "CV March 2026",
+        "title": "CV",
+        "file": "attachments/cv.pdf",
+    })
+    assert d.status == DocumentStatus.received  # default when file present
+
+
+def test_document_pending_recommendation():
+    d = Document.model_validate({
+        "tags": ["eduport-type/document", "eduport-doctype/recommendation"],
+        "name": "Rec letter",
+        "title": "Rec from Jane",
+        "status": "requested",
+        "recommender": "[[jane-doe-A4f2]]",
+        "requested_at": "2026-10-01",
+    })
+    assert d.status == DocumentStatus.requested
+    assert d.file is None
+    assert d.recommender and d.recommender.target == "jane-doe-A4f2"
+
+
+def test_email_full():
+    e = Email.model_validate({
+        "tags": ["eduport-type/email"],
+        "name": "Q about deadline",
+        "direction": "outbound",
+        "date": "2026-09-20",
+        "subject": "Question about MSc CS deadline",
+        "from": "rusen@example.com",
+        "to": ["admissions@inf.ethz.ch"],
+        "cc": ["jane.doe@inf.ethz.ch"],
+        "related_program": "[[msc-cs-Q7w8]]",
+        "related_people": ["[[jane-doe-A4f2]]"],
+    })
+    assert e.direction == EmailDirection.outbound
+    assert e.from_ == "rusen@example.com"
+    assert e.cc == ["jane.doe@inf.ethz.ch"]
+    assert e.related_program and e.related_program.target == "msc-cs-Q7w8"
+
+
+def test_note_minimal():
+    n = Note.model_validate({
+        "tags": ["eduport-type/note"],
+        "name": "scratchpad",
+    })
+    assert n.entity_type().value == "note"
