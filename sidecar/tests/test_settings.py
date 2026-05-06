@@ -44,3 +44,15 @@ def test_invalid_theme_rejected():
             theme="bogus",  # type: ignore
             user_email="x@x.com",
         )
+
+
+def test_unknown_field_rejected():
+    with pytest.raises(ValueError):
+        Settings.model_validate({
+            "data_folder": "/tmp",
+            "attachments_folder": "./a",
+            "notes_folder": "./n",
+            "theme": "system",
+            "user_email": "x@x.com",
+            "unknown_setting": "boom",
+        })

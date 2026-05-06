@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import tomli_w
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,7 +26,7 @@ class Settings(BaseModel):
         return (self.data_folder / self.notes_folder).resolve()
 
 
-def load_settings(path: Path) -> Optional[Settings]:
+def load_settings(path: Path) -> Settings | None:
     if not path.exists():
         return None
     return Settings.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
@@ -35,5 +35,4 @@ def load_settings(path: Path) -> Optional[Settings]:
 def save_settings(settings: Settings, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = settings.model_dump(mode="json")
-    payload["data_folder"] = str(payload["data_folder"])
     path.write_bytes(tomli_w.dumps(payload).encode("utf-8"))
