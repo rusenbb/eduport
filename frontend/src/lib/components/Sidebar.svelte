@@ -5,22 +5,23 @@
 	import { status } from '$lib/stores/status';
 	import { ENTITY_TYPES, type EntityType } from '$lib/types';
 	import { onMount } from 'svelte';
+	import Icon, { type IconName } from './Icon.svelte';
 
-	const workspace = [
-		{ href: '/', label: 'Dashboard', icon: 'Dashboard' },
-		{ href: '/deadlines', label: 'Deadlines', icon: 'Dates' },
-		{ href: '/status', label: 'Status', icon: 'Status' }
+	const workspace: { href: string; label: string; icon: IconName }[] = [
+		{ href: '/', label: 'Dashboard', icon: 'dashboard' },
+		{ href: '/deadlines', label: 'Deadlines', icon: 'deadlines' },
+		{ href: '/status', label: 'Status', icon: 'status' }
 	];
 
-	const database: { href: string; label: string; icon: string; type: EntityType }[] = [
-		{ href: '/program', label: 'Programs', icon: 'Prog', type: 'program' },
-		{ href: '/application', label: 'Applications', icon: 'App', type: 'application' },
-		{ href: '/person', label: 'People', icon: 'Ppl', type: 'person' },
-		{ href: '/university', label: 'Universities', icon: 'Univ', type: 'university' },
-		{ href: '/lab', label: 'Labs', icon: 'Lab', type: 'lab' },
-		{ href: '/document', label: 'Documents', icon: 'Doc', type: 'document' },
-		{ href: '/email', label: 'Emails', icon: 'Mail', type: 'email' },
-		{ href: '/note', label: 'Notes', icon: 'Note', type: 'note' }
+	const database: { href: string; label: string; icon: IconName; type: EntityType }[] = [
+		{ href: '/program', label: 'Programs', icon: 'program', type: 'program' },
+		{ href: '/application', label: 'Applications', icon: 'application', type: 'application' },
+		{ href: '/person', label: 'People', icon: 'person', type: 'person' },
+		{ href: '/university', label: 'Universities', icon: 'university', type: 'university' },
+		{ href: '/lab', label: 'Labs', icon: 'lab', type: 'lab' },
+		{ href: '/document', label: 'Documents', icon: 'document', type: 'document' },
+		{ href: '/email', label: 'Emails', icon: 'email', type: 'email' },
+		{ href: '/note', label: 'Notes', icon: 'note', type: 'note' }
 	];
 
 	let counts: Partial<Record<EntityType, number>> = $state({});
@@ -59,10 +60,10 @@
 		{#each workspace as item}
 			<a
 				href={item.href}
-				class="flex items-center gap-2 rounded px-2 py-1.5 text-[var(--color-text)] hover:bg-white/5"
+				class="flex items-center gap-2.5 rounded px-2 py-1.5 text-[var(--color-text)] hover:bg-white/5"
 				class:active={isActive(item.href)}
 			>
-				<span class="w-12 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{item.icon}</span>
+				<Icon name={item.icon} class="text-[var(--color-muted)]" />
 				<span>{item.label}</span>
 			</a>
 		{/each}
@@ -76,8 +77,8 @@
 				class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-[var(--color-text)] hover:bg-white/5"
 				class:active={isActive(item.href)}
 			>
-				<span class="flex min-w-0 items-center gap-2">
-					<span class="w-9 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{item.icon}</span>
+				<span class="flex min-w-0 items-center gap-2.5">
+					<Icon name={item.icon} class="text-[var(--color-muted)]" />
 					<span class="truncate">{item.label}</span>
 				</span>
 				<span class="text-[10px] text-[var(--color-muted)]">{counts[item.type] ?? 0}</span>
@@ -104,11 +105,11 @@
 	</div>
 
 	<div class="mt-auto flex flex-col gap-1">
-		<a href="/trash" class="flex items-center gap-2 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/trash')}>
-			<span class="w-12 text-[10px] uppercase tracking-wide">Trash</span><span>Trash</span>
+		<a href="/trash" class="flex items-center gap-2.5 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/trash')}>
+			<Icon name="trash" /><span>Trash</span>
 		</a>
-		<a href="/settings" class="flex items-center gap-2 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/settings')}>
-			<span class="w-12 text-[10px] uppercase tracking-wide">Prefs</span><span>Settings</span>
+		<a href="/settings" class="flex items-center gap-2.5 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/settings')}>
+			<Icon name="settings" /><span>Settings</span>
 		</a>
 	</div>
 </aside>
