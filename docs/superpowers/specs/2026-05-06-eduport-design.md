@@ -81,15 +81,19 @@ Every entity file is named:
 **Slug generation rules** (deterministic, applied to the entity's name):
 
 1. Unicode normalize to NFKD and strip combining marks (so `ETH Zürich` →
-   `ETH Zurich`, `Søren Kierkegaard` → `Soren Kierkegaard`). This avoids
-   non-ASCII filenames, which behave inconsistently across filesystems and
-   sync services.
-2. Lowercase.
-3. Replace any run of non-alphanumeric characters with a single `-`.
-4. Strip leading and trailing `-`.
-5. Truncate to 60 characters at a word boundary.
-6. If the result is empty (e.g., the name is purely emoji), fall back to
-   `untitled`.
+   `ETH Zurich`).
+2. Apply a small transliteration table for European Latin characters that
+   don't decompose under NFKD: `ø→o`, `Ø→O`, `æ→ae`, `Æ→AE`, `œ→oe`,
+   `Œ→OE`, `ß→ss`, `þ→th`, `Þ→TH`, `ð→d`, `Ð→D`, `ł→l`, `Ł→L`. So
+   `Søren Kierkegaard` → `Soren Kierkegaard`. Non-Latin scripts (Cyrillic,
+   CJK, etc.) are not transliterated; they pass through to step 3 and end
+   up as hyphens — acceptable v1 behaviour.
+3. Lowercase.
+4. Replace any run of non-alphanumeric characters with a single `-`.
+5. Strip leading and trailing `-`.
+6. Truncate to 60 characters at a word boundary.
+7. If the result is empty (e.g., the name is purely emoji or non-Latin
+   without enough ASCII letters), fall back to `untitled`.
 
 The 4-char id uses the alphabet `[a-zA-Z0-9]`, giving 62⁴ ≈ 14.7M
 combinations — collisions are vanishingly unlikely. On creation, the app
