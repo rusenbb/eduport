@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from eduport.models import Lab, Person, University
 from eduport.models.base import (
     BaseEntity,
     EmailResource,
@@ -70,9 +71,6 @@ def test_user_tags_excludes_doctype_prefix():
         "name": "CV March 2026",
     })
     assert obj.user_tags() == ["ai"]
-
-
-from eduport.models import Lab, Person, University
 
 
 def test_university_minimal():
