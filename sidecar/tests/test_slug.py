@@ -10,6 +10,8 @@ from eduport.slug import generate_slug
         ("ETH Zürich", "eth-zurich"),  # NFKD fold
         ("MSc CS (AI track)", "msc-cs-ai-track"),
         ("Søren Kierkegaard", "soren-kierkegaard"),
+        ("Øresund Bridge", "oresund-bridge"),  # uppercase fold-table entry
+        ("Æschylus", "aeschylus"),             # Æ → AE then lowercased
         ("  trailing & leading  ", "trailing-leading"),
         ("multiple --- dashes", "multiple-dashes"),
         ("CamelCase Name", "camelcase-name"),
