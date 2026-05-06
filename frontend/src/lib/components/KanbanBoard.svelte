@@ -3,7 +3,13 @@
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
 	import type { ApplicationStatus, EntityListItem } from '$lib/types';
 
-	let { onPick }: { onPick?: (fileId: string) => void } = $props();
+	let {
+		onPick,
+		onUpdated
+	}: {
+		onPick?: (fileId: string) => void;
+		onUpdated?: (fileId: string) => void;
+	} = $props();
 
 	const statuses: ApplicationStatus[] = [
 		'planning',
@@ -74,6 +80,7 @@
 			const newFm = { ...(detail.entity as Record<string, unknown>), status: target };
 			await updateEntity('application', fileId, newFm, detail.body);
 			await load();
+			onUpdated?.(fileId);
 		} catch (e) {
 			alert(`Failed to update status: ${e instanceof Error ? e.message : String(e)}`);
 			await load();

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { deleteEntity, getEntity, listEntities } from '$lib/api/entities';
@@ -26,7 +27,14 @@
 	let editingForm = $state(false);
 	let editingBody = $state(false);
 	let focusMode = $state(false);
-	let view: 'list' | 'kanban' = $state('list');
+	const view = $derived(page.url.searchParams.get('view') === 'kanban' ? 'kanban' : 'list');
+
+	function setView(next: 'list' | 'kanban') {
+		const url = new URL(page.url);
+		if (next === 'list') url.searchParams.delete('view');
+		else url.searchParams.set('view', next);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
 	const newAction = getContext<Writable<{ label: string; onClick: () => void } | null>>('eduport:newAction');
 	const selectedFileId = $derived(fileId ?? undefined);
@@ -106,8 +114,8 @@
 			</div>
 			{#if type === 'application'}
 				<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
-					<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => (view = 'list')}>List</button>
-					<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => (view = 'kanban')}>Kanban</button>
+					<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
+					<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
 				</div>
 			{/if}
 		</header>
@@ -118,7 +126,13 @@
 			{:else if error}
 				<div class="p-8 text-center text-[var(--color-bad)]">Error: {error}</div>
 			{:else if type === 'application' && view === 'kanban'}
-				<KanbanBoard onPick={(id) => goto(`/application/${id}`)} />
+				<KanbanBoard
+					onPick={(id) => goto(`/application/${id}`)}
+					onUpdated={(id) => {
+						void loadList();
+						if (id === selectedFileId) void loadDetail();
+					}}
+				/>
 			{:else}
 				<EntityList {items} {type} {selectedFileId} {details} />
 			{/if}
