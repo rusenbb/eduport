@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import type { EditorView } from '@codemirror/view';
 
 	let { value = $bindable('') }: { value: string } = $props();
 
 	let host: HTMLDivElement;
-	let view: any = null;
+	let view: EditorView | null = null;
 	let externalValue = '';
 
 	onMount(async () => {
