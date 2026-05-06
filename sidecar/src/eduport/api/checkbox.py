@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from eduport.api.deps import AppState, get_state
 from eduport.index.writer import upsert_entity
 from eduport.parsers.entity import ParseError, parse_file
+from eduport.parsers.frontmatter import split as split_frontmatter
 
 router = APIRouter()
 
@@ -25,27 +26,23 @@ def toggle(payload: ToggleIn, state: AppState = Depends(get_state)) -> dict:
         raise HTTPException(status_code=404, detail="entity not found")
     path = Path(row[0])
     text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    body_start = 0
-    if lines and lines[0] == "---":
-        for i in range(1, len(lines)):
-            if lines[i] == "---":
-                body_start = i + 1
-                if body_start < len(lines) and lines[body_start] == "":
-                    body_start += 1
-                break
-    target = body_start + payload.line
-    if target >= len(lines):
+    # Use the same body extraction as the reader serves the frontend, so the
+    # caller's body-relative line index lines up with what we patch on disk.
+    _, body = split_frontmatter(text)
+    body_offset = len(text) - len(body)
+    body_lines = body.split("\n")
+    if payload.line < 0 or payload.line >= len(body_lines):
         raise HTTPException(status_code=400, detail="line out of range")
-    line = lines[target]
+    line = body_lines[payload.line]
     new_marker = "[x]" if payload.checked else "[ ]"
     if line.startswith("- [ ]"):
-        lines[target] = "- " + new_marker + line[len("- [ ]"):]
+        body_lines[payload.line] = "- " + new_marker + line[len("- [ ]"):]
     elif line.startswith("- [x]") or line.startswith("- [X]"):
-        lines[target] = "- " + new_marker + line[len("- [x]"):]
+        body_lines[payload.line] = "- " + new_marker + line[len("- [x]"):]
     else:
         raise HTTPException(status_code=400, detail="line is not a checkbox")
-    new_text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    new_body = "\n".join(body_lines)
+    new_text = text[:body_offset] + new_body
     path.write_text(new_text, encoding="utf-8")
     state.file_store.delete_marker(path)
     result = parse_file(path)
