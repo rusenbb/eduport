@@ -4,9 +4,13 @@ import sqlite3
 
 from fastapi import FastAPI
 
+from eduport.api.checkbox import router as checkbox_router
 from eduport.api.deps import AppState
+from eduport.api.eml_import import router as eml_router
 from eduport.api.entities import router as entities_router
 from eduport.api.health import router as health_router
+from eduport.api.search import router as search_router
+from eduport.api.settings_api import router as settings_router
 from eduport.settings import Settings
 from eduport.store.files import EntityFileStore
 from eduport.store.trash import LocalTrash
@@ -27,4 +31,8 @@ def build_app(
     )
     app.include_router(health_router)
     app.include_router(entities_router)
+    app.include_router(search_router)
+    app.include_router(checkbox_router)
+    app.include_router(eml_router)
+    app.include_router(settings_router)
     return app
