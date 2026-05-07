@@ -13,6 +13,7 @@
 	import DetailPanel from './DetailPanel.svelte';
 	import EntityForm from './EntityForm.svelte';
 	import EntityList from './EntityList.svelte';
+	import EmailGroupedList from './EmailGroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
@@ -28,11 +29,19 @@
 	let editingBody = $state(false);
 	let focusMode = $state(false);
 	const view = $derived(page.url.searchParams.get('view') === 'kanban' ? 'kanban' : 'list');
+	const groupBy = $derived(page.url.searchParams.get('group') === 'application' ? 'application' : 'none');
 
 	function setView(next: 'list' | 'kanban') {
 		const url = new URL(page.url);
 		if (next === 'list') url.searchParams.delete('view');
 		else url.searchParams.set('view', next);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+
+	function setGroupBy(next: 'none' | 'application') {
+		const url = new URL(page.url);
+		if (next === 'none') url.searchParams.delete('group');
+		else url.searchParams.set('group', next);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
@@ -117,6 +126,11 @@
 					<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
 					<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
 				</div>
+			{:else if type === 'email'}
+				<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
+					<button class="rounded px-2 py-1" class:active={groupBy === 'none'} onclick={() => setGroupBy('none')}>Chronological</button>
+					<button class="rounded px-2 py-1" class:active={groupBy === 'application'} onclick={() => setGroupBy('application')}>By application</button>
+				</div>
 			{/if}
 		</header>
 
@@ -133,6 +147,8 @@
 						if (id === selectedFileId) void loadDetail();
 					}}
 				/>
+			{:else if type === 'email' && groupBy === 'application'}
+				<EmailGroupedList {items} />
 			{:else}
 				<EntityList {items} {type} {selectedFileId} {details} />
 			{/if}
