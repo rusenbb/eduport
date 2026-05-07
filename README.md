@@ -64,10 +64,17 @@ src-tauri/           Rust shell (Tauri 2) — entry point + native bridges
 
 ## Prerequisites
 
+The project targets macOS, Windows, and Linux. All three need:
+
 - **Rust** 1.77.2+ (`rustup install stable`)
 - **Node.js** 20+ and npm
 - **Python** 3.12+ and [`uv`](https://docs.astral.sh/uv/)
-- **Linux only:** the usual Tauri webkit deps — `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `build-essential` (Debian/Ubuntu names)
+
+Plus the OS-specific Tauri prerequisites (full reference: <https://v2.tauri.app/start/prerequisites/>):
+
+- **macOS:** Xcode Command Line Tools — `xcode-select --install`
+- **Windows:** [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (with the "Desktop development with C++" workload). WebView2 is preinstalled on Windows 10/11.
+- **Linux (Debian/Ubuntu):** `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `build-essential`
 
 ## Getting started
 

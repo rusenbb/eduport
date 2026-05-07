@@ -64,10 +64,17 @@ src-tauri/           Rust kabuk (Tauri 2) — giriş noktası + yerel köprüler
 
 ## Ön koşullar
 
+Proje macOS, Windows ve Linux'u hedefler. Üçü de şunlara ihtiyaç duyar:
+
 - **Rust** 1.77.2+ (`rustup install stable`)
 - **Node.js** 20+ ve npm
 - **Python** 3.12+ ve [`uv`](https://docs.astral.sh/uv/)
-- **Yalnızca Linux:** standart Tauri webkit bağımlılıkları — `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `build-essential` (Debian/Ubuntu adlarıyla)
+
+Ayrıca işletim sistemine özgü Tauri ön koşulları (tam liste: <https://v2.tauri.app/start/prerequisites/>):
+
+- **macOS:** Xcode Command Line Tools — `xcode-select --install`
+- **Windows:** [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++" iş yüküyle). WebView2, Windows 10/11'de önceden yüklüdür.
+- **Linux (Debian/Ubuntu):** `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `build-essential`
 
 ## Başlangıç
 
