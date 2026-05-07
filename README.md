@@ -1,5 +1,7 @@
 # Eduport
 
+**English** · [Türkçe](README.tr.md)
+
 <img src="src-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
 
 A single-user desktop app for tracking university applications, programs, people, labs, and the documents and emails that connect them. Storage is plain Markdown + YAML on disk — sync-friendly via Dropbox / iCloud / Syncthing, and editable directly in Obsidian alongside the app.
