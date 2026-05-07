@@ -26,6 +26,8 @@
 	const isDocument = $derived(detail.type === 'document');
 	const filePath = $derived(detail.entity.file as string | undefined);
 	let relatedEmails: EntityDetail[] = $state([]);
+	let threadInReplyTo: EntityDetail | null = $state(null);
+	let threadReplies: EntityDetail[] = $state([]);
 	let localBody = $state('');
 	let actionMenuOpen = $state(false);
 
@@ -153,10 +155,39 @@
 		}
 	}
 
+	async function loadEmailThread() {
+		if (detail.type !== 'email') {
+			threadInReplyTo = null;
+			threadReplies = [];
+			return;
+		}
+		const selfLink = relatedLinkForCurrentDetail();
+		const inReplyToLink = (detail.entity.in_reply_to as string | null) ?? null;
+		try {
+			const emails = await listEntities('email');
+			const details = await Promise.all(emails.map((item) => getEntity('email', item.file_id).catch(() => null)));
+			const valid = details.filter((email): email is EntityDetail => !!email);
+			// Backward: the email this one replies to (one hop).
+			threadInReplyTo = inReplyToLink
+				? (valid.find((email) => relatedLinkFor(email) === inReplyToLink) ?? null)
+				: null;
+			// Forward: emails whose in_reply_to points at us (one hop each).
+			threadReplies = valid.filter((email) => email.entity.in_reply_to === selfLink);
+		} catch {
+			threadInReplyTo = null;
+			threadReplies = [];
+		}
+	}
+
+	function relatedLinkFor(email: EntityDetail): string {
+		return `[[${email.file_id}]]`;
+	}
+
 	$effect(() => {
 		detail.file_id;
 		localBody = detail.body;
 		void loadRelatedEmails();
+		void loadEmailThread();
 	});
 </script>
 
@@ -257,6 +288,38 @@
 					</button>
 				{/each}
 			</div>
+		</div>
+	{/if}
+
+	{#if threadInReplyTo || threadReplies.length > 0}
+		<div class="border-t border-[var(--color-border)] px-4 py-3">
+			<h3 class="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">Thread</h3>
+			{#if threadInReplyTo}
+				<div class="mb-2">
+					<div class="mb-1 text-[10px] text-[var(--color-muted)]">In reply to</div>
+					<button
+						class="block w-full rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-left text-xs hover:bg-white/10"
+						onclick={() => goto(`/email/${threadInReplyTo!.file_id}`)}
+					>
+						<div class="font-medium">{threadInReplyTo.entity.subject as string}</div>
+						<div class="text-[10px] text-[var(--color-muted)]">{threadInReplyTo.entity.date as string} · {threadInReplyTo.entity.direction as string}</div>
+					</button>
+				</div>
+			{/if}
+			{#if threadReplies.length > 0}
+				<div class="mb-1 text-[10px] text-[var(--color-muted)]">Replies</div>
+				<div class="grid gap-1.5">
+					{#each threadReplies as reply}
+						<button
+							class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-left text-xs hover:bg-white/10"
+							onclick={() => goto(`/email/${reply.file_id}`)}
+						>
+							<div class="font-medium">{reply.entity.subject as string}</div>
+							<div class="text-[10px] text-[var(--color-muted)]">{reply.entity.date as string} · {reply.entity.direction as string}</div>
+						</button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
