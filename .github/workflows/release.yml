@@ -1,0 +1,112 @@
+name: Release
+
+# Triggers:
+#   • git tag matching v* → automatic release build
+#   • workflow_dispatch → manual run (e.g., re-trigger after a CI flake)
+#
+# Output: a draft GitHub Release with installers for the three desktop OSes
+# attached. Draft (not published) so you can sanity-check the assets before
+# announcing. Click "Publish release" in the GitHub UI when ready.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build a release for (e.g., v0.1.0)'
+        required: true
+
+permissions:
+  contents: write   # needed to create / update the release
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # When dispatched manually, check out the explicit tag input;
+          # otherwise checkout the tag that triggered the workflow.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build desktop package
+        run: python scripts/build_desktop.py
+
+      # Each OS produces different installer types; collect what's there into
+      # one folder. `cp ... || true` so a missing format (e.g., AppImage on a
+      # CI runner that can't FUSE-mount) is a warning, not a failure.
+      - name: Stage release assets (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release-assets
+          cp src-tauri/target/release/bundle/deb/*.deb release-assets/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/rpm/*.rpm release-assets/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage release-assets/ 2>/dev/null || true
+          ls -la release-assets/
+
+      - name: Stage release assets (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release-assets
+          cp src-tauri/target/release/bundle/dmg/*.dmg release-assets/ 2>/dev/null || true
+          # zip the .app bundle so it survives transit through GitHub's CDN
+          if [ -d src-tauri/target/release/bundle/macos ]; then
+            (cd src-tauri/target/release/bundle/macos && zip -r ../../../../../release-assets/Eduport-macos.app.zip ./*.app)
+          fi
+          ls -la release-assets/
+
+      - name: Stage release assets (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          cp src-tauri/target/release/bundle/msi/*.msi release-assets/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe release-assets/ 2>/dev/null || true
+          ls -la release-assets/
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: release-assets/*
+          generate_release_notes: true
