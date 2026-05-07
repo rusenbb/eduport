@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Eduport">
+	<title>Eduport</title>
+	<defs>
+		<g id="handle">
+			<line x1="32" y1="2.5" x2="32" y2="11" stroke-width="3" stroke-linecap="round" fill="none" />
+			<circle cx="32" cy="2.5" r="2" />
+		</g>
+	</defs>
+	<g fill="#d97706" stroke="#d97706">
+		<use href="#handle" />
+		<use href="#handle" transform="rotate(45 32 32)" />
+		<use href="#handle" transform="rotate(90 32 32)" />
+		<use href="#handle" transform="rotate(135 32 32)" />
+		<use href="#handle" transform="rotate(180 32 32)" />
+		<use href="#handle" transform="rotate(225 32 32)" />
+		<use href="#handle" transform="rotate(270 32 32)" />
+		<use href="#handle" transform="rotate(315 32 32)" />
+		<circle cx="32" cy="32" r="20" fill="none" stroke-width="4" />
+		<g stroke-width="2.5" stroke-linecap="round" fill="none">
+			<line x1="32" y1="14" x2="32" y2="50" />
+			<line x1="32" y1="14" x2="32" y2="50" transform="rotate(45 32 32)" />
+			<line x1="32" y1="14" x2="32" y2="50" transform="rotate(90 32 32)" />
+			<line x1="32" y1="14" x2="32" y2="50" transform="rotate(135 32 32)" />
+		</g>
+		<circle cx="32" cy="32" r="5" />
+	</g>
+	<circle cx="32" cy="32" r="1.5" fill="#fffbeb" />
+</svg>
