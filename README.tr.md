@@ -6,7 +6,9 @@
 
 Üniversite başvurularını, programları, kişileri, laboratuvarları ve bunları birbirine bağlayan belgeler ile e-postaları takip eden tek kullanıcılı bir masaüstü uygulaması. Veriler düz Markdown + YAML olarak diskte saklanır — Dropbox / iCloud / Syncthing ile senkronize edilebilir, uygulamanın yanında doğrudan Obsidian'da düzenlenebilir.
 
-**Durum:** v1 aktif geliştirme aşamasında. Yerel derlemeler uçtan uca çalışıyor; imzalı yükleyiciler ve CI dağıtımı sonraya bırakıldı.
+**Sadece kullanmak mı istiyorsunuz?** Windows, macOS veya Linux için yükleyiciyi [son sürümden](https://github.com/rusenbb/eduport/releases/latest) indirin — sürüm sayfası işletim sisteminize göre hangi dosyayı seçeceğinizi ve nasıl kuracağınızı tam olarak söylüyor. Başka bir kuruluma gerek yok.
+
+**Durum:** v1 aktif geliştirme aşamasında. Yerel derlemeler uçtan uca çalışıyor; yükleyiciler henüz imzalanmadı (ilk çalıştırmada çıkacak uyarılar atlanabilir; adımlar sürüm sayfasında).
 
 ## Öne çıkanlar
 

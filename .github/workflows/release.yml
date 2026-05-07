@@ -109,4 +109,8 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           files: release-assets/*
+          # Friendly body explaining what to download per OS;
+          # generate_release_notes appends GitHub's auto-changelog under "What's new".
+          body_path: .github/release-body.md
           generate_release_notes: true
+          append_body: true

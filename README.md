@@ -6,7 +6,9 @@
 
 A single-user desktop app for tracking university applications, programs, people, labs, and the documents and emails that connect them. Storage is plain Markdown + YAML on disk — sync-friendly via Dropbox / iCloud / Syncthing, and editable directly in Obsidian alongside the app.
 
-**Status:** v1 in active development. Local builds work end-to-end; signed installers and CI distribution are deferred.
+**Just want to use it?** Download an installer for Windows, macOS, or Linux from the [latest release](https://github.com/rusenbb/eduport/releases/latest) — the release page lists exactly which file to pick for your OS and how to install it. No setup beyond that.
+
+**Status:** v1 in active development. Local builds work end-to-end; installers are unsigned (warnings on first launch are dismissable, see the release page for steps).
 
 ## Highlights
 
