@@ -16,5 +16,3 @@ A single-user desktop app for tracking university applications, programs, people
 > **Heads up:** the installers aren't code-signed yet, so your OS will show a "from an unidentified developer" warning on first launch. The steps above explain how to dismiss it. Each asset's SHA-256 checksum is listed by GitHub below if you want to verify the download.
 
 After install, the app walks you through a short onboarding: pick the folder where Eduport should keep your data, optionally seed it with a few sample entries, and you're in.
-
-## What's new
