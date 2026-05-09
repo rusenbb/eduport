@@ -12,10 +12,9 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { updateEntity } from '$lib/api/entities';
-	import { FIELD_DEFS, type FieldDef } from '$lib/entities/meta';
+	import { FIELD_DEFS, builtinKindToPropertyType, type FieldDef } from '$lib/entities/meta';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import type { Property, ValueWarning } from '$lib/types/schema';
-	import Icon from './Icon.svelte';
 	import PropertyCell from './properties/PropertyCell.svelte';
 	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
 
@@ -198,9 +197,13 @@
 				{#each visibleBuiltins as field}
 					<th
 						class="cursor-default border-l border-[var(--color-border)] px-2 py-1.5 text-left font-medium"
+						title="Built-in field — edit on the entity's detail panel"
 					>
 						<span class="flex items-center gap-1">
-							<Icon name="document" size={11} class="text-[var(--color-muted)]" />
+							<PropertyTypeIcon
+								type={builtinKindToPropertyType(field.kind)}
+								class="text-[var(--color-muted)]"
+							/>
 							<span class="truncate">{field.label}</span>
 						</span>
 					</th>

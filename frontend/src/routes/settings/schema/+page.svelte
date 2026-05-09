@@ -3,7 +3,12 @@
 	import { page } from '$app/state';
 	import { ApiError } from '$lib/api/client';
 	import { purgeOrphans } from '$lib/api/schema';
-	import { TYPE_LABELS } from '$lib/entities/meta';
+	import {
+		BUILTIN_KIND_LABELS,
+		FIELD_DEFS,
+		TYPE_LABELS,
+		builtinKindToPropertyType
+	} from '$lib/entities/meta';
 	import Icon from '$lib/components/Icon.svelte';
 	import PropertyTypeIcon from '$lib/components/properties/PropertyTypeIcon.svelte';
 	import { schemaStore } from '$lib/stores/schema';
@@ -193,17 +198,47 @@
 		<div class="text-center text-sm text-[var(--color-muted)]">Loading schema…</div>
 	{:else if $schemaStore.schema}
 		{@const typeSchema = $schemaStore.schema.types[activeType]}
+		{@const builtinDefs = FIELD_DEFS[activeType] ?? []}
 		<section class="flex flex-col gap-3">
 			<header class="flex items-center justify-between">
 				<h2 class="text-sm font-semibold">Built-in fields</h2>
 			</header>
-			<div class="flex flex-wrap gap-1.5">
-				{#each typeSchema.builtin_keys as key}
-					<span class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs text-[var(--color-muted)]">
-						{key}
-					</span>
-				{/each}
-			</div>
+			{#if builtinDefs.length === 0}
+				<p class="text-xs text-[var(--color-muted)]">No structured built-in fields on this entity type.</p>
+			{:else}
+				<div class="grid gap-2">
+					{#each builtinDefs as def}
+						<div class="flex items-start gap-3 rounded border border-[var(--color-border)] bg-white/[0.015] px-3 py-2">
+							<PropertyTypeIcon type={builtinKindToPropertyType(def.kind)} class="mt-0.5 text-[var(--color-muted)]" />
+							<div class="min-w-0 flex-1">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="text-sm font-medium">{def.label}</span>
+									<span class="text-[10px] text-[var(--color-muted)]">{def.key}</span>
+									<span class="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
+										{BUILTIN_KIND_LABELS[def.kind]}
+									</span>
+									<span class="rounded bg-[var(--color-muted)]/20 px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
+										built-in
+									</span>
+								</div>
+								{#if def.kind === 'select' && def.options}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each def.options as opt}
+											<span class="rounded bg-white/5 px-1.5 py-0.5 text-[10px]">{opt}</span>
+										{/each}
+									</div>
+								{/if}
+								{#if def.kind === 'wikilink' && def.linkType}
+									<div class="mt-1 text-[10px] text-[var(--color-muted)]">→ {def.linkType}</div>
+								{/if}
+								{#if def.kind === 'wikilinks' && def.linkType}
+									<div class="mt-1 text-[10px] text-[var(--color-muted)]">→ {def.linkType}s</div>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 			<p class="text-[10px] text-[var(--color-muted)]">
 				Built-in fields cannot be renamed or removed. Custom fields below cannot use these keys.
 			</p>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FieldDef } from '$lib/entities/meta';
+	import { builtinKindToPropertyType, type FieldDef } from '$lib/entities/meta';
 	import type { Property } from '$lib/types/schema';
 	import Icon from '../Icon.svelte';
 	import PropertyTypeIcon from './PropertyTypeIcon.svelte';
@@ -74,6 +74,7 @@
 								checked={visibleBuiltinKeys.includes(field.key)}
 								class="pointer-events-none"
 							/>
+							<PropertyTypeIcon type={builtinKindToPropertyType(field.kind)} class="text-[var(--color-muted)]" />
 							<span class="truncate">{field.label}</span>
 						</button>
 					{/each}

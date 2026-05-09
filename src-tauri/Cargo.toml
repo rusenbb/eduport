@@ -1,6 +1,6 @@
 [package]
 name = "eduport"
-version = "0.1.0"
+version = "0.1.1"
 description = "Eduport — university application tracker desktop shell"
 authors = ["rusenbb"]
 license = "MIT"

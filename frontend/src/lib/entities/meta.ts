@@ -143,6 +143,49 @@ export function inferTypeFromField(field: string, fallback: EntityType = 'note')
 	return map[field] ?? fallback;
 }
 
+/**
+ * Map a built-in field's `kind` (Pydantic-typed) onto the closest
+ * `PropertyType` so the same `<PropertyTypeIcon>` covers both surfaces.
+ *
+ * The mapping is deliberately lossy: `email` → `text` (icon-wise it's just
+ * a string), `wikilinks` and `resources` → list-style icons (`relation` and
+ * `multi-select` respectively). The point isn't perfect fidelity, it's
+ * visual consistency between custom + built-in rows.
+ */
+export function builtinKindToPropertyType(
+	kind: FieldDef['kind']
+): import('$lib/types/schema').PropertyType {
+	switch (kind) {
+		case 'text':
+		case 'email':
+			return 'text';
+		case 'url':
+			return 'url';
+		case 'date':
+			return 'date';
+		case 'select':
+			return 'single-select';
+		case 'wikilink':
+			return 'relation';
+		case 'wikilinks':
+			return 'relation';
+		case 'resources':
+			return 'multi-select';
+	}
+}
+
+/** Display label for a built-in kind, mirroring the custom property types. */
+export const BUILTIN_KIND_LABELS: Record<FieldDef['kind'], string> = {
+	text: 'Text',
+	email: 'Email',
+	url: 'URL',
+	date: 'Date',
+	select: 'Single select',
+	wikilink: 'Relation',
+	wikilinks: 'Relations (list)',
+	resources: 'Resources (list)'
+};
+
 export function readField(entity: Record<string, unknown>, key: string): string {
 	const value = entity[key];
 	if (value === null || value === undefined) return '';
