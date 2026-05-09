@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '../Icon.svelte';
+	import PropertyTypeIcon from './PropertyTypeIcon.svelte';
 	import {
 		COLOR_CLASSES,
 		DEFAULT_PROPERTY_FILTERS,
@@ -220,11 +221,12 @@
 				<div class="absolute left-0 top-full z-30 mt-1 w-48 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] shadow-xl">
 					{#each inactive as prop}
 						<button
-							class="block w-full border-b border-[var(--color-border)] px-3 py-1.5 text-left text-xs last:border-b-0 hover:bg-white/5"
+							class="flex w-full items-center gap-2 border-b border-[var(--color-border)] px-3 py-1.5 text-left text-xs last:border-b-0 hover:bg-white/5"
 							onclick={() => startFilter(prop)}
 						>
-							{prop.name}
-							<span class="text-[10px] text-[var(--color-muted)]">· {prop.type}</span>
+							<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
+							<span class="truncate">{prop.name}</span>
+							<span class="ml-auto text-[10px] text-[var(--color-muted)]">{prop.type}</span>
 						</button>
 					{/each}
 				</div>

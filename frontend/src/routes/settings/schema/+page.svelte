@@ -5,6 +5,7 @@
 	import { purgeOrphans } from '$lib/api/schema';
 	import { TYPE_LABELS } from '$lib/entities/meta';
 	import Icon from '$lib/components/Icon.svelte';
+	import PropertyTypeIcon from '$lib/components/properties/PropertyTypeIcon.svelte';
 	import { schemaStore } from '$lib/stores/schema';
 	import { ENTITY_TYPES, type EntityType } from '$lib/types';
 	import { COLOR_PALETTE, type Property, type PropertyType, type SelectOption } from '$lib/types/schema';
@@ -186,6 +187,7 @@
 						<div class="flex items-start gap-3 rounded border border-[var(--color-border)] bg-white/[0.03] px-3 py-2">
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
+									<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
 									<span class="text-sm font-medium">{prop.name}</span>
 									<span class="text-[10px] text-[var(--color-muted)]">{prop.key}</span>
 									<span class="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">

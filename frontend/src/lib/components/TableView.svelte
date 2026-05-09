@@ -18,6 +18,8 @@
 	import PropertyCell from './properties/PropertyCell.svelte';
 	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
 
+	import { COLOR_CLASSES } from '$lib/types/schema';
+
 	let {
 		entityType,
 		items,
@@ -28,6 +30,7 @@
 		selectedFileId,
 		sortKey,
 		sortDir,
+		groupByKey,
 		onSort,
 		onUpdated
 	}: {
@@ -40,9 +43,62 @@
 		selectedFileId?: string;
 		sortKey?: string;
 		sortDir?: 'asc' | 'desc';
+		groupByKey?: string;
 		onSort?: (key: string | undefined, dir: 'asc' | 'desc') => void;
 		onUpdated?: (fileId: string) => void;
 	} = $props();
+
+	// Map of groupValue → { label, color, items }. Built only when groupByKey
+	// names a single-select property in `properties`. Multi-select / number /
+	// date grouping is deferred — Notion supports them but they need bucket
+	// logic that isn't worth the complexity for v1.
+	const groupBy = $derived.by(() => {
+		if (!groupByKey) return null;
+		const prop = properties.find((p) => p.key === groupByKey);
+		if (!prop || prop.type !== 'single-select') return null;
+		return prop;
+	});
+
+	const groups = $derived.by(() => {
+		if (!groupBy) return null;
+		const buckets: Record<
+			string,
+			{ value: string; label: string; color: string; items: EntityListItem[] }
+		> = {};
+		for (const opt of groupBy.options) {
+			buckets[opt.value] = {
+				value: opt.value,
+				label: opt.label,
+				color: opt.color,
+				items: []
+			};
+		}
+		const uncategorized: EntityListItem[] = [];
+		for (const item of items) {
+			const detail = details[item.file_id];
+			const v = (detail?.entity as Record<string, unknown> | undefined)?.[groupBy.key];
+			if (typeof v === 'string' && v in buckets) {
+				buckets[v].items.push(item);
+			} else {
+				uncategorized.push(item);
+			}
+		}
+		const ordered = Object.values(buckets);
+		if (uncategorized.length > 0) {
+			ordered.push({
+				value: '__uncategorized__',
+				label: 'Uncategorized',
+				color: 'gray',
+				items: uncategorized
+			});
+		}
+		return ordered;
+	});
+
+	let collapsed: Record<string, boolean> = $state({});
+	function toggleCollapse(value: string) {
+		collapsed = { ...collapsed, [value]: !collapsed[value] };
+	}
 
 	const builtinFields = $derived(FIELD_DEFS[entityType] ?? []);
 
@@ -157,12 +213,11 @@
 			</tr>
 		</thead>
 		<tbody>
-			{#each items as item (item.file_id)}
+			{#snippet entityRow(item: EntityListItem)}
 				{@const detail = details[item.file_id] ?? null}
 				{@const isSelected = item.file_id === selectedFileId}
 				<tr
 					class="border-b border-[var(--color-border)] hover:bg-white/[0.03]"
-					class:bg-blue-500-15={isSelected}
 					class:selected={isSelected}
 				>
 					<td
@@ -184,9 +239,7 @@
 								{value}
 								editing={false}
 								onStartEdit={() => navigate(item.file_id)}
-								onSave={() => {
-									/* read-only */
-								}}
+								onSave={() => {}}
 								onCancel={cancelEdit}
 							/>
 						</td>
@@ -207,7 +260,38 @@
 						</td>
 					{/each}
 				</tr>
-			{/each}
+			{/snippet}
+
+			{#if groups}
+				{@const colSpan = 1 + visibleBuiltins.length + visibleCustoms.length}
+				{#each groups as group (group.value)}
+					{@const c = COLOR_CLASSES[group.color as keyof typeof COLOR_CLASSES] ?? COLOR_CLASSES.gray}
+					{@const isCollapsed = collapsed[group.value]}
+					<tr class="border-y border-[var(--color-border)] bg-[var(--color-bg)]">
+						<td
+							class="sticky left-0 z-10 cursor-pointer bg-[var(--color-bg)] px-2 py-1.5 text-xs font-medium hover:bg-white/5"
+							{...{ colspan: colSpan } as unknown as Record<string, never>}
+							onclick={() => toggleCollapse(group.value)}
+						>
+							<span class="inline-flex items-center gap-2">
+								<span class="text-[10px] text-[var(--color-muted)]">{isCollapsed ? '▶' : '▼'}</span>
+								<span class="inline-flex h-2 w-2 rounded-full {c.bg} border {c.border}"></span>
+								<span>{group.label}</span>
+								<span class="text-[10px] text-[var(--color-muted)]">{group.items.length}</span>
+							</span>
+						</td>
+					</tr>
+					{#if !isCollapsed}
+						{#each group.items as item (item.file_id)}
+							{@render entityRow(item)}
+						{/each}
+					{/if}
+				{/each}
+			{:else}
+				{#each items as item (item.file_id)}
+					{@render entityRow(item)}
+				{/each}
+			{/if}
 		</tbody>
 	</table>
 

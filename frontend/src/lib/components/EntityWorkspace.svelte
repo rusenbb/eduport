@@ -22,6 +22,7 @@
 	import EntityForm from './EntityForm.svelte';
 	import EntityList from './EntityList.svelte';
 	import EmailGroupedList from './EmailGroupedList.svelte';
+	import GroupedList from './GroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
 	import TableView from './TableView.svelte';
 	import ColumnVisibilityMenu from './properties/ColumnVisibilityMenu.svelte';
@@ -55,8 +56,23 @@
 		if (v === 'table') return 'table';
 		return 'list';
 	});
+
 	const groupBy = $derived(page.url.searchParams.get('group') === 'application' ? 'application' : 'none');
 	const customProperties = $derived($schemaStore.schema?.types[type]?.properties ?? []);
+
+	// Generic group-by used by the list & table views (separate from
+	// `kanban_by` which the kanban needs because its "ungrouped" state is
+	// status). Use the URL so saved views can capture it later.
+	const groupByKey = $derived(page.url.searchParams.get('group') ?? undefined);
+	const groupableProps = $derived(
+		customProperties.filter((p) => p.type === 'single-select')
+	);
+	function setGroupByKey(key: string | undefined) {
+		const url = new URL(page.url);
+		if (!key) url.searchParams.delete('group');
+		else url.searchParams.set('group', key);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
 	// Single-select properties on Application that the user can group the kanban by.
 	const kanbanGroupableProps = $derived(
@@ -262,6 +278,21 @@
 						onChange={persistColumns}
 					/>
 				{/if}
+				{#if (view === 'list' || view === 'table') && groupableProps.length > 0}
+					<label class="flex items-center gap-1 text-xs">
+						<span class="text-[var(--color-muted)]">Group by</span>
+						<select
+							value={groupByKey ?? ''}
+							onchange={(e) => setGroupByKey((e.currentTarget as HTMLSelectElement).value || undefined)}
+							class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-xs"
+						>
+							<option value="">(none)</option>
+							{#each groupableProps as p}
+								<option value={p.key}>{p.name}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
 				{#if type === 'application' && view === 'kanban' && kanbanGroupableProps.length > 0}
 					<label class="flex items-center gap-1 text-xs">
 						<span class="text-[var(--color-muted)]">Group by</span>
@@ -326,6 +357,7 @@
 					selectedFileId={selectedFileId}
 					sortKey={propertyFilters.sort}
 					sortDir={propertyFilters.sortDir}
+					{groupByKey}
 					onSort={(key, dir) => {
 						syncFiltersToUrl({ ...propertyFilters, sort: key, sortDir: key ? dir : undefined });
 					}}
@@ -336,6 +368,15 @@
 				/>
 			{:else if type === 'email' && groupBy === 'application'}
 				<EmailGroupedList {items} />
+			{:else if groupByKey}
+				{@const groupProp = groupableProps.find((p) => p.key === groupByKey) ?? null}
+				<GroupedList
+					entityType={type}
+					{items}
+					{details}
+					groupBy={groupProp}
+					{selectedFileId}
+				/>
 			{:else}
 				<EntityList {items} {type} {selectedFileId} {details} />
 			{/if}

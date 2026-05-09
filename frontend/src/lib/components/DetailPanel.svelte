@@ -8,7 +8,9 @@
 	import { onMount } from 'svelte';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
+	import PropertyConfigDialog from './properties/PropertyConfigDialog.svelte';
 	import PropertyEditor from './properties/PropertyEditor.svelte';
+	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
 	import PropertyValue from './properties/PropertyValue.svelte';
 	import PropertyWarningChip from './properties/PropertyWarningChip.svelte';
 
@@ -181,6 +183,8 @@
 		return (detail.value_warnings ?? []).filter((w) => w.key === key);
 	}
 
+	let addingProperty = $state(false);
+
 	const tags = $derived(
 		Array.isArray(detail.entity.tags)
 			? (detail.entity.tags as string[]).filter(
@@ -346,7 +350,10 @@
 					{@const warnings = warningsForKey(prop.key)}
 					<div class="grid grid-cols-[120px_1fr_auto] items-start gap-3">
 						<div class="flex flex-col text-xs">
-							<span class="font-medium">{prop.name}</span>
+							<span class="flex items-center gap-1 font-medium">
+								<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
+								<span>{prop.name}</span>
+							</span>
 							{#if prop.description}
 								<span class="text-[10px] text-[var(--color-muted)]">{prop.description}</span>
 							{/if}
@@ -389,15 +396,36 @@
 					</div>
 				{/each}
 			</div>
-			<div class="mt-3">
-				<a
-					href="/settings/schema?type={detail.type}"
-					class="text-[10px] text-[var(--color-muted)] underline hover:text-[var(--color-text)]"
+			<div class="mt-3 flex gap-3 text-[10px]">
+				<button
+					class="text-[var(--color-muted)] underline hover:text-[var(--color-text)]"
+					onclick={() => (addingProperty = true)}
 				>
 					+ Add property
+				</button>
+				<a
+					href="/settings/schema?type={detail.type}"
+					class="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+				>
+					Manage in schema editor →
 				</a>
 			</div>
 		</div>
+	{/if}
+
+	{#if addingProperty}
+		<PropertyConfigDialog
+			entityType={detail.type}
+			mode="add"
+			existing={null}
+			onCancel={() => (addingProperty = false)}
+			onSaved={async () => {
+				addingProperty = false;
+				const fresh = await getEntity(detail.type, detail.file_id);
+				detail.entity = fresh.entity;
+				detail.value_warnings = fresh.value_warnings;
+			}}
+		/>
 	{/if}
 
 	{#if (detail.value_warnings ?? []).length > 0}
