@@ -24,10 +24,18 @@
 	import EmailGroupedList from './EmailGroupedList.svelte';
 	import GroupedList from './GroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
+	import SaveViewDialog from './SaveViewDialog.svelte';
 	import TableView from './TableView.svelte';
+	import ViewTabs from './ViewTabs.svelte';
 	import ColumnVisibilityMenu from './properties/ColumnVisibilityMenu.svelte';
 	import PropertyFilterBar from './properties/PropertyFilterBar.svelte';
 	import { FIELD_DEFS } from '$lib/entities/meta';
+	import { viewsStore } from '$lib/stores/views';
+	import {
+		propertyFiltersToViewFilter,
+		viewFilterToPropertyFilters,
+		type View
+	} from '$lib/types/view';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
 
@@ -240,7 +248,54 @@
 
 	$effect(() => {
 		void schemaStore.load();
+		void viewsStore.load();
 	});
+
+	// Active view tracking. URL param `?view_id=<id>` selects a saved view;
+	// when active, edits to filter/sort/group propagate into the URL but the
+	// view tab stays highlighted (state can diverge — saving updates the view).
+	const activeViewId = $derived(page.url.searchParams.get('view_id'));
+	const activeView = $derived.by((): View | null => {
+		if (!activeViewId) return null;
+		return $viewsStore.file?.types[type]?.views.find((v) => v.id === activeViewId) ?? null;
+	});
+
+	let saveDialogOpen = $state(false);
+
+	function applyView(view: View | null) {
+		const url = new URL(page.url);
+		// Clear all view-driven URL params first.
+		for (const k of ['text', 'num', 'date', 'sort', 'sort_dir', 'group', 'view', 'view_id', 'kanban_by']) {
+			url.searchParams.delete(k);
+		}
+		if (view) {
+			url.searchParams.set('view_id', view.id);
+			const pf = viewFilterToPropertyFilters(view);
+			writeFilterParams(url.searchParams, pf);
+			if (view.group_by_key) url.searchParams.set('group', view.group_by_key);
+			if (view.kind === 'table') url.searchParams.set('view', 'table');
+			else if (view.kind === 'board' && type === 'application') url.searchParams.set('view', 'kanban');
+			// list is the default — no param needed
+			// Apply view's columns to localStorage so the table picks them up.
+			if (view.columns) {
+				visibleCustomKeys = view.columns;
+				saveColumns(type, { custom: view.columns, builtin: visibleBuiltinKeys });
+			}
+		}
+		void goto(url, { replaceState: false, keepFocus: false });
+	}
+
+	function captureCurrentAsViewBody() {
+		return {
+			viewKind: (view === 'kanban' ? 'board' : view) as 'list' | 'table' | 'board',
+			filter: propertyFiltersToViewFilter(propertyFilters),
+			sortKey: propertyFilters.sort ?? null,
+			sortDir: propertyFilters.sortDir ?? 'asc',
+			groupByKey: groupByKey ?? null,
+			columns: visibleCustomKeys.length > 0 ? visibleCustomKeys : null,
+			cardProperties: null
+		} as const;
+	}
 
 	$effect(() => {
 		void loadDetail();
@@ -263,6 +318,13 @@
 
 <div class="grid h-full min-h-0 grid-cols-[minmax(360px,1fr)_minmax(360px,440px)] overflow-hidden">
 	<section class="flex min-w-0 flex-col overflow-hidden border-r border-[var(--color-border)]">
+		<ViewTabs
+			entityType={type}
+			activeViewId={activeViewId ?? null}
+			onSelect={applyView}
+			onSaveCurrent={() => (saveDialogOpen = true)}
+			onActiveDeleted={() => applyView(null)}
+		/>
 		<header class="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
 			<div>
 				<h1 class="text-sm font-semibold">{TYPE_LABELS[type]}</h1>
@@ -452,6 +514,29 @@
 			editingBody = false;
 			void loadList();
 			void loadDetail();
+		}}
+	/>
+{/if}
+
+{#if saveDialogOpen}
+	{@const body = captureCurrentAsViewBody()}
+	<SaveViewDialog
+		entityType={type}
+		mode="create"
+		viewKind={body.viewKind}
+		filter={body.filter}
+		sortKey={body.sortKey}
+		sortDir={body.sortDir}
+		groupByKey={body.groupByKey}
+		columns={body.columns}
+		cardProperties={body.cardProperties}
+		onCancel={() => (saveDialogOpen = false)}
+		onSaved={(view) => {
+			saveDialogOpen = false;
+			// Activate the new view so the user sees its tab highlighted.
+			const url = new URL(page.url);
+			url.searchParams.set('view_id', view.id);
+			void goto(url, { replaceState: true });
 		}}
 	/>
 {/if}
