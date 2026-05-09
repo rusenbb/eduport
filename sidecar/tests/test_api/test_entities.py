@@ -41,6 +41,77 @@ def test_get_one(seeded_client):
     assert body["entity"]["name"] == "ETH"
     assert "body" in body
     assert "backlinks" in body
+    # Schema is empty — the entity has no custom keys, so no warnings.
+    assert body["value_warnings"] == []
+
+
+def test_get_one_includes_value_warnings_for_orphaned_keys(client, conn, settings):
+    """When the entity carries a key not in the schema, it should surface
+    as an `orphaned` warning in the GET response."""
+    eth = University.model_validate({
+        "tags": ["eduport-type/university"],
+        "name": "ETH", "country": "Switzerland",
+        "tier": "reach",  # not in the (empty) schema → orphaned
+    })
+    upsert_entity(conn, "eth-K9p3", settings.data_folder / "eth-K9p3.md", 1, eth, "Body")
+
+    response = client.get("/entities/university/eth-K9p3")
+    assert response.status_code == 200
+    warnings = response.json()["value_warnings"]
+    assert len(warnings) == 1
+    assert warnings[0]["key"] == "tier"
+    assert warnings[0]["kind"] == "orphaned"
+
+
+def test_get_one_no_warnings_after_property_declared(client, conn, settings):
+    """After declaring `tier` as a single-select with `reach`, the same
+    entity payload should yield zero warnings."""
+    eth = University.model_validate({
+        "tags": ["eduport-type/university"],
+        "name": "ETH", "country": "Switzerland",
+        "tier": "reach",
+    })
+    upsert_entity(conn, "eth-K9p3", settings.data_folder / "eth-K9p3.md", 1, eth, "Body")
+
+    client.post(
+        "/api/schema/types/university/properties",
+        json={
+            "type": "single-select",
+            "key": "tier",
+            "name": "Tier",
+            "options": [{"value": "reach", "label": "Reach", "color": "red"}],
+        },
+    )
+
+    response = client.get("/entities/university/eth-K9p3")
+    assert response.status_code == 200
+    assert response.json()["value_warnings"] == []
+
+
+def test_get_one_out_of_options_warning(client, conn, settings):
+    """Tier value not in the option list → `out_of_options` warning."""
+    eth = University.model_validate({
+        "tags": ["eduport-type/university"],
+        "name": "ETH", "country": "Switzerland",
+        "tier": "platinum",  # not in our option list
+    })
+    upsert_entity(conn, "eth-K9p3", settings.data_folder / "eth-K9p3.md", 1, eth, "Body")
+
+    client.post(
+        "/api/schema/types/university/properties",
+        json={
+            "type": "single-select",
+            "key": "tier",
+            "name": "Tier",
+            "options": [{"value": "reach", "label": "Reach", "color": "red"}],
+        },
+    )
+
+    response = client.get("/entities/university/eth-K9p3")
+    assert response.status_code == 200
+    warnings = response.json()["value_warnings"]
+    assert warnings[0]["kind"] == "out_of_options"
+    assert warnings[0]["value"] == "platinum"
 
 
 def test_resolve_entity(seeded_client):

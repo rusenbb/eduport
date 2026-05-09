@@ -4,9 +4,17 @@
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { deleteEntity, getEntity, listEntities } from '$lib/api/entities';
+	import {
+		filterEntitiesByProperties,
+		hasActiveFilters,
+		parseFilterParams,
+		writeFilterParams
+	} from '$lib/api/schema';
 	import { filters } from '$lib/stores/filters';
+	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
+	import { DEFAULT_PROPERTY_FILTERS, type PropertyFilters } from '$lib/types/schema';
 	import { TYPE_LABELS } from '$lib/entities/meta';
 	import { confirmDestructive } from '$lib/tauri';
 	import EntityBodyEditor from './EntityBodyEditor.svelte';
@@ -15,6 +23,7 @@
 	import EntityList from './EntityList.svelte';
 	import EmailGroupedList from './EmailGroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
+	import PropertyFilterBar from './properties/PropertyFilterBar.svelte';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
 
@@ -28,8 +37,41 @@
 	let editingForm = $state(false);
 	let editingBody = $state(false);
 	let focusMode = $state(false);
+	let propertyFilters: PropertyFilters = $state(parseFilterParams(page.url.searchParams));
+
+	function syncFiltersToUrl(next: PropertyFilters) {
+		propertyFilters = next;
+		const url = new URL(page.url);
+		writeFilterParams(url.searchParams, next);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 	const view = $derived(page.url.searchParams.get('view') === 'kanban' ? 'kanban' : 'list');
 	const groupBy = $derived(page.url.searchParams.get('group') === 'application' ? 'application' : 'none');
+	const customProperties = $derived($schemaStore.schema?.types[type]?.properties ?? []);
+
+	// Single-select properties on Application that the user can group the kanban by.
+	const kanbanGroupableProps = $derived(
+		type === 'application'
+			? customProperties.filter((p) => p.type === 'single-select')
+			: []
+	);
+	const kanbanGroupKey = $derived(page.url.searchParams.get('kanban_by') ?? 'status');
+	const kanbanGroupBy = $derived.by(() => {
+		if (kanbanGroupKey === 'status') return undefined; // built-in path
+		const prop = kanbanGroupableProps.find((p) => p.key === kanbanGroupKey);
+		if (!prop || prop.type !== 'single-select') return undefined;
+		return {
+			key: prop.key,
+			columns: prop.options.map((o) => ({ value: o.value, label: o.label, color: o.color }))
+		};
+	});
+
+	function setKanbanGroup(key: string) {
+		const url = new URL(page.url);
+		if (key === 'status') url.searchParams.delete('kanban_by');
+		else url.searchParams.set('kanban_by', key);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
 	function setView(next: 'list' | 'kanban') {
 		const url = new URL(page.url);
@@ -52,7 +94,22 @@
 		loading = true;
 		error = null;
 		try {
-			items = await listEntities(type, $filters.tags);
+			// Property filters / sort use the indexed query path; tag filters use
+			// the existing list endpoint. When both apply, fetch via property
+			// filters and intersect against the tag-list result.
+			let baseItems: EntityListItem[];
+			if (hasActiveFilters(propertyFilters)) {
+				baseItems = await filterEntitiesByProperties(type, propertyFilters);
+				if ($filters.tags.length > 0) {
+					const tagged = new Set(
+						(await listEntities(type, $filters.tags)).map((i) => i.file_id)
+					);
+					baseItems = baseItems.filter((item) => tagged.has(item.file_id));
+				}
+			} else {
+				baseItems = await listEntities(type, $filters.tags);
+			}
+			items = baseItems;
 			const nextDetails: Record<string, EntityDetail | null> = {};
 			await Promise.all(
 				items.map(async (item) => {
@@ -89,10 +146,23 @@
 	}
 
 	$effect(() => {
-		const _filterKey = $filters.tags.join('\u0000');
+		const _filterKey =
+			$filters.tags.join('\u0000') + '|' + JSON.stringify(propertyFilters);
 		newAction?.set({ label: `New ${TYPE_LABELS[type]}`, onClick: () => (creating = true) });
 		void loadList();
 		return () => newAction?.set(null);
+	});
+
+	$effect(() => {
+		// Re-parse filters from the URL whenever the entity type or query
+		// string changes — keeps sidebar-driven navigation in sync with the
+		// filter bar's local state.
+		type;
+		propertyFilters = parseFilterParams(page.url.searchParams);
+	});
+
+	$effect(() => {
+		void schemaStore.load();
 	});
 
 	$effect(() => {
@@ -122,9 +192,26 @@
 				<p class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">{items.length} items</p>
 			</div>
 			{#if type === 'application'}
-				<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
-					<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
-					<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
+				<div class="flex items-center gap-2">
+					{#if view === 'kanban' && kanbanGroupableProps.length > 0}
+						<label class="flex items-center gap-1 text-xs">
+							<span class="text-[var(--color-muted)]">Group by</span>
+							<select
+								value={kanbanGroupKey}
+								onchange={(e) => setKanbanGroup((e.currentTarget as HTMLSelectElement).value)}
+								class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-xs"
+							>
+								<option value="status">Status (built-in)</option>
+								{#each kanbanGroupableProps as p}
+									<option value={p.key}>{p.name}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
+						<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
+						<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
+					</div>
 				</div>
 			{:else if type === 'email'}
 				<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
@@ -134,6 +221,14 @@
 			{/if}
 		</header>
 
+		{#if customProperties.length > 0 && !(type === 'application' && view === 'kanban')}
+			<PropertyFilterBar
+				properties={customProperties}
+				filters={propertyFilters}
+				onChange={syncFiltersToUrl}
+			/>
+		{/if}
+
 		<div class="min-h-0 flex-1 overflow-auto">
 			{#if loading}
 				<div class="p-8 text-center text-[var(--color-muted)]">Loading...</div>
@@ -141,6 +236,7 @@
 				<div class="p-8 text-center text-[var(--color-bad)]">Error: {error}</div>
 			{:else if type === 'application' && view === 'kanban'}
 				<KanbanBoard
+					groupBy={kanbanGroupBy}
 					onPick={(id) => goto(`/application/${id}`)}
 					onUpdated={(id) => {
 						void loadList();

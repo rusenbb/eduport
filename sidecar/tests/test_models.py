@@ -62,11 +62,15 @@ def test_base_entity_required_tags_include_type():
     assert "ai" in obj.user_tags()
 
 
-def test_base_entity_rejects_unknown_field():
-    with pytest.raises(ValidationError):
-        BaseEntity.model_validate(
-            {"tags": ["eduport-type/program"], "name": "X", "bogus_field": 1}
-        )
+def test_base_entity_accepts_unknown_field_as_extra():
+    """Custom user-defined properties arrive as extra YAML keys (see models/schema.py).
+    Pydantic accepts them; the schema-driven validator (parsers/custom_fields.py)
+    flags any that aren't declared as a custom property.
+    """
+    obj = BaseEntity.model_validate(
+        {"tags": ["eduport-type/program"], "name": "X", "tier": "reach"}
+    )
+    assert obj.model_extra == {"tier": "reach"}
 
 
 def test_base_entity_rejects_missing_type_tag():

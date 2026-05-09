@@ -8,12 +8,19 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
+from eduport.store.schema_store import SCHEMA_DIR_NAME, SCHEMA_FILENAME
+
 log = logging.getLogger("eduport.watcher")
 
 EventCallback = Callable[[str, Path], None]
 
+# Event kinds emitted to callbacks:
+#   "created" / "modified" / "deleted"  → entity .md files
+#   "schema_modified"                   → .eduport/schema.yaml (any change)
+SCHEMA_EVENT_KIND = "schema_modified"
 
-class _Handler(FileSystemEventHandler):
+
+class _EntityHandler(FileSystemEventHandler):
     def __init__(self, callback: EventCallback) -> None:
         self.callback = callback
 
@@ -36,6 +43,31 @@ class _Handler(FileSystemEventHandler):
             self._emit("deleted", event.src_path)
 
 
+class _SchemaHandler(FileSystemEventHandler):
+    """Watches `.eduport/schema.yaml` only; collapses any change to one event."""
+
+    def __init__(self, callback: EventCallback) -> None:
+        self.callback = callback
+
+    def _maybe_emit(self, raw_path: str) -> None:
+        path = Path(raw_path)
+        if path.name != SCHEMA_FILENAME:
+            return
+        self.callback(SCHEMA_EVENT_KIND, path)
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        if not event.is_directory:
+            self._maybe_emit(event.src_path)
+
+    def on_modified(self, event: FileSystemEvent) -> None:
+        if not event.is_directory:
+            self._maybe_emit(event.src_path)
+
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        if not event.is_directory:
+            self._maybe_emit(event.src_path)
+
+
 class EduportWatcher:
     def __init__(self, folder: Path, callback: EventCallback) -> None:
         self.folder = folder
@@ -46,10 +78,16 @@ class EduportWatcher:
         if self._observer is not None:
             return
         observer = Observer()
-        observer.schedule(_Handler(self.callback), str(self.folder), recursive=False)
+        observer.schedule(_EntityHandler(self.callback), str(self.folder), recursive=False)
+        # Schema lives in `.eduport/` — make the dir if missing so the watch
+        # can attach. SchemaStore also creates this on first load; this
+        # belt-and-suspenders avoids ordering issues.
+        schema_dir = self.folder / SCHEMA_DIR_NAME
+        schema_dir.mkdir(parents=True, exist_ok=True)
+        observer.schedule(_SchemaHandler(self.callback), str(schema_dir), recursive=False)
         observer.start()
         self._observer = observer
-        log.info("watcher started on %s", self.folder)
+        log.info("watcher started on %s (+ %s)", self.folder, schema_dir)
 
     def stop(self) -> None:
         if self._observer is None:

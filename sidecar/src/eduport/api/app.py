@@ -14,6 +14,8 @@ from eduport.api.eml_import import router as eml_router
 from eduport.api.entities import router as entities_router
 from eduport.api.health import router as health_router
 from eduport.api.metadata_api import router as metadata_router
+from eduport.api.properties_api import router as properties_router
+from eduport.api.schema_api import router as schema_router
 from eduport.api.search import router as search_router
 from eduport.api.settings_api import router as settings_router
 from eduport.api.status_api import router as status_router
@@ -23,13 +25,26 @@ from eduport.index.writer import (
     clear_parse_error,
     delete_entity,
     record_parse_error,
+    reindex_all_properties,
     upsert_entity,
 )
 from eduport.parsers.entity import ParseError, parse_file
 from eduport.settings import Settings
 from eduport.store.files import EntityFileStore
+from eduport.store.schema_store import SchemaStore
 from eduport.store.trash import LocalTrash
 from eduport.watcher import EduportWatcher
+
+
+def _on_schema_changed(state: AppState) -> None:
+    """Reload the schema file and re-index every entity's `properties` rows.
+
+    Triggered when `.eduport/schema.yaml` changes on disk — either because
+    the user edited it directly in their editor, or because sync delivered
+    a remote update.
+    """
+    state.schema_store.reload()
+    reindex_all_properties(state.conn, state.schema_store.current())
 
 
 def build_app(
@@ -38,16 +53,32 @@ def build_app(
     settings_path: Path | None = None,
     start_watcher: bool = True,
     run_reconcile: bool = False,
+    rebuild_index_after_init: bool = False,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # When init_schema migrated FTS5, the entities table still has rows
+        # but FTS5 is empty — re-derive both FTS5 and properties from
+        # cached frontmatter before the watcher / reconcile take over.
+        if rebuild_index_after_init:
+            reindex_all_properties(
+                app.state.eduport.conn,
+                app.state.eduport.schema_store.current(),
+            )
         if run_reconcile:
-            reconcile(app.state.eduport.conn, settings.data_folder)
+            reconcile(
+                app.state.eduport.conn,
+                settings.data_folder,
+                schema=app.state.eduport.schema_store.current(),
+            )
         watcher: Optional[EduportWatcher] = None
         if start_watcher:
 
             def on_event(kind: str, path: Path) -> None:
                 state = app.state.eduport
+                if kind == "schema_modified":
+                    _on_schema_changed(state)
+                    return
                 if state.file_store.was_recently_written(path):
                     return
                 if kind == "deleted":
@@ -64,6 +95,7 @@ def build_app(
                     mtime_ns=path.stat().st_mtime_ns,
                     entity=result.entity,
                     body=result.body,
+                    schema=state.schema_store.current(),
                 )
                 clear_parse_error(state.conn, str(path))
 
@@ -83,12 +115,15 @@ def build_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    schema_store = SchemaStore(settings.data_folder)
+    schema_store.load()  # seeds .eduport/schema.yaml on first run
     app.state.eduport = AppState(
         settings=settings,
         conn=conn,
         settings_path=settings_path,
         file_store=EntityFileStore(settings.data_folder),
         trash=LocalTrash(settings.data_folder),
+        schema_store=schema_store,
     )
     app.include_router(health_router)
     app.include_router(entities_router)
@@ -96,6 +131,8 @@ def build_app(
     app.include_router(metadata_router)
     app.include_router(checkbox_router)
     app.include_router(eml_router)
+    app.include_router(properties_router)
+    app.include_router(schema_router)
     app.include_router(settings_router)
     app.include_router(status_router)
     app.include_router(trash_router)

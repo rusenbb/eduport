@@ -40,3 +40,35 @@ def test_watcher_fires_on_create_modify_delete(folder):
         _wait(lambda: any(k == "deleted" and n == "x-Y2y2.md" for k, n in seen))
     finally:
         watcher.stop()
+
+
+def test_watcher_emits_schema_modified_for_schema_yaml(folder):
+    """External edits to `.eduport/schema.yaml` produce a `schema_modified`
+    event; non-schema files in `.eduport/` are ignored."""
+    seen: list[tuple[str, str]] = []
+
+    def on_event(kind: str, path: Path) -> None:
+        seen.append((kind, path.name))
+
+    watcher = EduportWatcher(folder, on_event)
+    watcher.start()
+    try:
+        schema_dir = folder / ".eduport"
+        schema_path = schema_dir / "schema.yaml"
+        schema_path.write_text("version: 1\ntypes: {}\n")
+        _wait(
+            lambda: any(
+                k == "schema_modified" and n == "schema.yaml" for k, n in seen
+            )
+        )
+
+        # Other files in .eduport/ are ignored by the schema handler.
+        seen.clear()
+        (schema_dir / "irrelevant.txt").write_text("x")
+        # Allow watchdog a moment to NOT fire schema_modified.
+        import time as _t
+
+        _t.sleep(0.3)
+        assert all(k != "schema_modified" for k, _ in seen)
+    finally:
+        watcher.stop()

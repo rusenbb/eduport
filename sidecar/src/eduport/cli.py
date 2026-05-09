@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     conn = sqlite3.connect(_index_path(settings.data_folder), check_same_thread=False)
-    init_schema(conn)
+    fts5_migrated = init_schema(conn)
 
     app = build_app(
         settings=settings,
@@ -62,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         settings_path=settings_file,
         start_watcher=True,
         run_reconcile=True,
+        rebuild_index_after_init=fts5_migrated,
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

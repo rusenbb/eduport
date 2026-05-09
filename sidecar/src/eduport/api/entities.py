@@ -13,6 +13,7 @@ from eduport.index.reader import backlinks, list_entities
 from eduport.index.writer import delete_entity, upsert_entity
 from eduport.models import EntityType
 from eduport.models.base import BaseEntity
+from eduport.parsers.custom_fields import validate_custom_fields, warning_to_dict
 from eduport.parsers.entity import _TYPE_TO_MODEL
 from eduport.slug import generate_slug
 
@@ -50,6 +51,34 @@ def resolve_target(target: str, state: AppState = Depends(get_state)) -> dict:
     return {"file_id": file_id, "type": row[0], "name": row[1]}
 
 
+def _known_target_ids(state: AppState) -> dict[str, EntityType]:
+    """Map of file_id → entity_type for relation link-checking."""
+    return {
+        row[0]: EntityType(row[1])
+        for row in state.conn.execute("SELECT file_id, type FROM entities")
+    }
+
+
+def _value_warnings_for(
+    type_value: str, frontmatter_json: str, state: AppState
+) -> list[dict]:
+    """Re-validate ``frontmatter_json`` against the current schema, returning
+    JSON-shaped value warnings. Returns ``[]`` on any structural problem
+    (the entity itself loaded fine to reach this point — we don't want to
+    paper over its absence by raising here)."""
+    try:
+        model_cls = _TYPE_TO_MODEL[EntityType(type_value)]
+        entity = model_cls.model_validate(json.loads(frontmatter_json))
+    except Exception:
+        return []
+    warnings = validate_custom_fields(
+        entity,
+        state.schema_store.current(),
+        known_target_ids=_known_target_ids(state),
+    )
+    return [warning_to_dict(w) for w in warnings]
+
+
 @router.get("/{type_}/{file_id}")
 def get_one(
     type_: str,
@@ -70,6 +99,7 @@ def get_one(
         "entity": json.loads(row[4]),
         "body": row[3],
         "backlinks": backlinks(state.conn, file_id),
+        "value_warnings": _value_warnings_for(row[0], row[4], state),
     }
 
 
@@ -106,6 +136,7 @@ def create(
         mtime_ns=path.stat().st_mtime_ns,
         entity=entity,
         body=payload.body,
+        schema=state.schema_store.current(),
     )
     return {"file_id": file_id}
 
@@ -138,6 +169,7 @@ def update(
         mtime_ns=path.stat().st_mtime_ns,
         entity=entity,
         body=payload.body,
+        schema=state.schema_store.current(),
     )
     return {"file_id": file_id}
 

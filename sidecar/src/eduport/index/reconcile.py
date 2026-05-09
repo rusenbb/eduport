@@ -4,6 +4,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from eduport.index.writer import (
     clear_parse_error,
@@ -11,6 +12,7 @@ from eduport.index.writer import (
     record_parse_error,
     upsert_entity,
 )
+from eduport.models import Schema
 from eduport.parsers.entity import ParseError, parse_file
 
 log = logging.getLogger("eduport.reconcile")
@@ -25,7 +27,11 @@ class ReconcileSummary:
     errors: int = 0
 
 
-def reconcile(conn: sqlite3.Connection, data_folder: Path) -> ReconcileSummary:
+def reconcile(
+    conn: sqlite3.Connection,
+    data_folder: Path,
+    schema: Optional[Schema] = None,
+) -> ReconcileSummary:
     summary = ReconcileSummary()
 
     existing: dict[str, int] = {
@@ -62,6 +68,7 @@ def reconcile(conn: sqlite3.Connection, data_folder: Path) -> ReconcileSummary:
             mtime_ns=mtime_ns,
             entity=result.entity,
             body=result.body,
+            schema=schema,
         )
         clear_parse_error(conn, str(path))
         if file_id in existing:

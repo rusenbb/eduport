@@ -8,6 +8,7 @@ from fastapi import Request
 
 from eduport.settings import Settings
 from eduport.store.files import EntityFileStore
+from eduport.store.schema_store import SchemaStore
 from eduport.store.trash import LocalTrash
 
 
@@ -18,6 +19,7 @@ class AppState:
     settings_path: Path | None
     file_store: EntityFileStore
     trash: LocalTrash
+    schema_store: SchemaStore
 
 
 def get_state(request: Request) -> AppState:

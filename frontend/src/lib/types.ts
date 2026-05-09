@@ -43,6 +43,7 @@ export interface EntityDetail {
 	entity: Record<string, unknown>;
 	body: string;
 	backlinks: Backlink[];
+	value_warnings?: import('./types/schema').ValueWarning[];
 }
 
 export interface SearchHit {

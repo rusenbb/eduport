@@ -75,7 +75,10 @@ _DOCTYPE_PREFIX = "eduport-doctype/"
 
 
 class BaseEntity(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Custom user-defined properties (see models/schema.py and parsers/custom_fields.py)
+    # arrive as extra YAML keys and are kept on the model via Pydantic's `model_extra`.
+    # The schema layer validates them; built-in fields below still validate strictly.
+    model_config = ConfigDict(extra="allow")
 
     tags: list[str] = Field(default_factory=list)
     name: str
