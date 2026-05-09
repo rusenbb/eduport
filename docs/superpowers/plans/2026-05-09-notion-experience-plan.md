@@ -1,6 +1,6 @@
 # Eduport — "Make it feel like Notion" execution plan
 
-**Status:** in progress
+**Status:** complete
 **Date:** 2026-05-09
 **Goal:** close the experience gap between Eduport's substance (we have it) and Notion's feel (we don't yet).
 
@@ -130,10 +130,15 @@ The single biggest "feels like Notion" lever.
 
 End of plan. Phases 0–6 below mark progress as commits land.
 
-- [ ] Phase 0 — baseline commit
-- [ ] Phase 1 — saved-views storage + API
-- [ ] Phase 2 — editable table view
-- [ ] Phase 3 — group-by + property icons + inline `+ Add property`
-- [ ] Phase 4 — saved views frontend
-- [ ] Phase 5 — drag-reorder polish + kanban card customization
-- [ ] Phase 6 — final tests + build
+- [x] Phase 0 — baseline commit (`7e52580`)
+- [x] Phase 1 — saved-views storage + API (`d270aa4`)
+- [x] Phase 2 — editable table view (`109114f`)
+- [x] Phase 3 — group-by + property icons + inline `+ Add property` (`3e30a53`)
+- [x] Phase 4 — saved views frontend (`a248b6f`)
+- [x] Phase 5 — drag-reorder polish + kanban card customization (`3d0fcbf`)
+- [x] Phase 6 — final tests + build
+
+**Status:** complete. 306 sidecar tests passing, ruff clean, svelte-check
+0 errors / 0 warnings, fresh `.deb` at
+`src-tauri/target/release/bundle/deb/Eduport_0.1.0_amd64.deb` (28.6 MB).
+Install with `sudo apt install ./src-tauri/target/release/bundle/deb/Eduport_0.1.0_amd64.deb`.

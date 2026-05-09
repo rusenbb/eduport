@@ -13,10 +13,12 @@ A single-user desktop app for tracking university applications, programs, people
 ## Highlights
 
 - **8 entity types** — University, Lab, Person, Program, Application, Document, Email, Note — all stored as `<slug>-<id>.md` with YAML frontmatter
+- **User-defined custom properties (Notion-style)** — per entity type, eight property types (text / number / date / checkbox / single-select / multi-select / url / relation), defined in a sync-friendly `.eduport/schema.yaml` so renames and new fields propagate across machines
+- **Three view modes per entity type** — List, Table (editable cells), and Kanban (Application). Click any cell in the Table to edit in place; drag cards on the Kanban to update the underlying field
+- **Saved views** — name a filter / sort / group / column-set / view-mode bundle as a tab; switch between Notion-shaped views with one click. Stored in `.eduport/views.yaml` (synced)
+- **Filter, sort, group-by, collapsible sections** — every list view supports per-property filters and sort, plus collapsible group-by-select sections. Sidebar shows per-property chip aggregations with counts
 - **Wikilinks as the relationship graph** — `[[eth-zurich-K9p3]]` references resolve by id-suffix, so renames in Obsidian don't break links
-- **Three-pane UI** — sidebar nav (with counts and tag chips), list/kanban toggle, detail panel with structured fields + rendered body
-- **Application kanban** — drag cards across status columns; in-app inline checkbox toggling on bodies
-- **⌘K command palette** — quick lookup + full-text search via SQLite FTS5
+- **⌘K command palette** — quick lookup + full-text search via SQLite FTS5 (covers custom text/url property values too)
 - **First-run onboarding** — picks a data folder, creates `attachments/` and `notes/` subfolders, optional sample seeds
 - **Soft delete** — items move to `<data folder>/.eduport-trash/`, restorable from the in-app Trash view
 - **Source of truth = your files** — SQLite lives outside the data folder (in the OS cache dir) and rebuilds itself if missing or stale
