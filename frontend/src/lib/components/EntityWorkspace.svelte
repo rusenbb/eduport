@@ -27,6 +27,7 @@
 	import SaveViewDialog from './SaveViewDialog.svelte';
 	import TableView from './TableView.svelte';
 	import ViewTabs from './ViewTabs.svelte';
+	import CardPropertiesMenu from './properties/CardPropertiesMenu.svelte';
 	import ColumnVisibilityMenu from './properties/ColumnVisibilityMenu.svelte';
 	import PropertyFilterBar from './properties/PropertyFilterBar.svelte';
 	import { FIELD_DEFS } from '$lib/entities/meta';
@@ -105,6 +106,14 @@
 		else url.searchParams.set('kanban_by', key);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
+
+	const kanbanCardProperties = $derived.by(() => {
+		const keys = activeView?.card_properties ?? null;
+		if (!keys || keys.length === 0) return [];
+		return keys
+			.map((k) => customProperties.find((p) => p.key === k))
+			.filter((p): p is import('$lib/types/schema').Property => !!p);
+	});
 
 	function setView(next: ViewMode) {
 		const url = new URL(page.url);
@@ -370,6 +379,13 @@
 						</select>
 					</label>
 				{/if}
+				{#if type === 'application' && view === 'kanban' && activeView}
+					<CardPropertiesMenu
+						entityType={type}
+						properties={customProperties}
+						{activeView}
+					/>
+				{/if}
 				{#if type === 'email'}
 					<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
 						<button class="rounded px-2 py-1" class:active={groupBy === 'none'} onclick={() => setGroupBy('none')}>Chronological</button>
@@ -402,6 +418,7 @@
 			{:else if type === 'application' && view === 'kanban'}
 				<KanbanBoard
 					groupBy={kanbanGroupBy}
+					cardProperties={kanbanCardProperties}
 					onPick={(id) => goto(`/application/${id}`)}
 					onUpdated={(id) => {
 						void loadList();

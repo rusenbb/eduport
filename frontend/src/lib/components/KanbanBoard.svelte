@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
-	import type { ApplicationStatus, EntityListItem } from '$lib/types';
-	import { COLOR_CLASSES, type OptionColor } from '$lib/types/schema';
+	import type { ApplicationStatus, EntityDetail, EntityListItem } from '$lib/types';
+	import { COLOR_CLASSES, type OptionColor, type Property } from '$lib/types/schema';
+	import PropertyValue from './properties/PropertyValue.svelte';
 
 	export interface KanbanColumn {
 		value: string;
@@ -12,11 +13,14 @@
 
 	let {
 		groupBy,
+		cardProperties = [],
 		onPick,
 		onUpdated
 	}: {
 		/** When omitted, groups by built-in `status` (the original behavior). */
 		groupBy?: { key: string; columns: KanbanColumn[] };
+		/** Custom properties to render below each card's title. */
+		cardProperties?: Property[];
 		onPick?: (fileId: string) => void;
 		onUpdated?: (fileId: string) => void;
 	} = $props();
@@ -36,13 +40,18 @@
 
 	const UNCATEGORIZED: KanbanColumn = { value: '__uncategorized__', label: 'Uncategorized' };
 
-	let columns: Record<string, EntityListItem[]> = $state({});
+	interface KanbanCard {
+		item: EntityListItem;
+		detail: EntityDetail | null;
+	}
+
+	let columns: Record<string, KanbanCard[]> = $state({});
 	let loading = $state(true);
 
 	async function load() {
 		loading = true;
 		const items = await listEntities('application');
-		const next: Record<string, EntityListItem[]> = {};
+		const next: Record<string, KanbanCard[]> = {};
 		for (const c of columnsDef) next[c.value] = [];
 		next[UNCATEGORIZED.value] = [];
 
@@ -51,10 +60,11 @@
 				try {
 					const detail = await getEntity('application', item.file_id);
 					const value = (detail.entity as Record<string, unknown>)[groupKey];
+					const card: KanbanCard = { item, detail };
 					if (typeof value === 'string' && value in next) {
-						next[value].push(item);
+						next[value].push(card);
 					} else {
-						next[UNCATEGORIZED.value].push(item);
+						next[UNCATEGORIZED.value].push(card);
 					}
 				} catch {
 					/* skip */
@@ -134,7 +144,9 @@
 						<span class="text-[10px] text-[var(--color-muted)]">{items.length}</span>
 					</header>
 					<div class="flex flex-1 flex-col gap-2 overflow-auto p-2">
-						{#each items as item (item.file_id)}
+						{#each items as card (card.item.file_id)}
+							{@const item = card.item}
+							{@const entity = card.detail?.entity as Record<string, unknown> | undefined}
 							<button
 								class="rounded border border-[var(--color-border)] bg-white/5 p-2 text-left text-sm hover:border-[var(--color-accent)]"
 								draggable={true}
@@ -142,7 +154,20 @@
 								onclick={() => (onPick ? onPick(item.file_id) : goto(`/application/${item.file_id}`))}
 							>
 								<div class="truncate font-medium">{item.name}</div>
-								<div class="truncate text-xs text-[var(--color-muted)]">{item.file_id}</div>
+								{#if cardProperties.length > 0}
+									<div class="mt-1.5 flex flex-wrap gap-1 text-xs">
+										{#each cardProperties as prop (prop.key)}
+											{@const value = entity?.[prop.key]}
+											{#if value !== undefined && value !== null && value !== ''}
+												<div class="inline-flex items-center gap-1">
+													<span class="text-[10px] text-[var(--color-muted)]">{prop.name}:</span>
+													<PropertyValue {prop} {value} />
+												</div>
+											{/if}
+										{/each}
+									</div>
+								{/if}
+								<div class="mt-1 truncate text-[10px] text-[var(--color-muted)]">{item.file_id}</div>
 							</button>
 						{/each}
 					</div>

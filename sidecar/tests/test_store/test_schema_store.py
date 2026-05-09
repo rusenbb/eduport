@@ -219,6 +219,23 @@ class TestPatchProperty:
             )
 
 
+class TestReorderProperties:
+    def test_reorder(self, store: SchemaStore) -> None:
+        store.load()
+        store.add_property(EntityType.university, TextProperty(type="text", key="a", name="A"))
+        store.add_property(EntityType.university, TextProperty(type="text", key="b", name="B"))
+        store.add_property(EntityType.university, TextProperty(type="text", key="c", name="C"))
+        store.reorder_properties(EntityType.university, ["c", "a", "b"])
+        keys = [p.key for p in store.current().for_type(EntityType.university).properties]
+        assert keys == ["c", "a", "b"]
+
+    def test_mismatch_rejected(self, store: SchemaStore) -> None:
+        store.load()
+        store.add_property(EntityType.university, TextProperty(type="text", key="a", name="A"))
+        with pytest.raises(SchemaStoreError, match="must contain"):
+            store.reorder_properties(EntityType.university, ["a", "ghost"])
+
+
 class TestDeleteProperty:
     def test_delete_existing(self, store: SchemaStore) -> None:
         store.load()

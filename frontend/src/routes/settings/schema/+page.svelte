@@ -82,6 +82,49 @@
 		}
 	}
 
+	// Drag-reorder for the property list. Uses HTML5 drag API directly so we
+	// don't take on a third-party drag library; the trade-off is rougher
+	// drop animations than Notion's. Reorder commits via schemaStore as soon
+	// as the drop lands.
+	let dragSourceIdx: number | null = $state(null);
+	let dragOverIdx: number | null = $state(null);
+
+	function onDragStart(e: DragEvent, idx: number) {
+		dragSourceIdx = idx;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', String(idx));
+		}
+	}
+
+	function onDragOver(e: DragEvent, idx: number) {
+		if (dragSourceIdx === null || dragSourceIdx === idx) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dragOverIdx = idx;
+	}
+
+	async function onDrop(e: DragEvent, dropIdx: number) {
+		e.preventDefault();
+		const fromIdx = dragSourceIdx;
+		dragSourceIdx = null;
+		dragOverIdx = null;
+		if (fromIdx === null || fromIdx === dropIdx) return;
+		const props = $schemaStore.schema?.types[activeType]?.properties;
+		if (!props) return;
+		const reordered = [...props];
+		const [moved] = reordered.splice(fromIdx, 1);
+		reordered.splice(dropIdx, 0, moved);
+		try {
+			await schemaStore.reorderProperties(
+				activeType,
+				reordered.map((p) => p.key)
+			);
+		} catch (err) {
+			topError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
 	async function purge(prop: Property) {
 		if (!confirm(`Permanently strip "${prop.key}" from all entity files? This cannot be undone.`)) return;
 		try {
@@ -183,8 +226,19 @@
 				</div>
 			{:else}
 				<div class="grid gap-2">
-					{#each typeSchema.properties as prop}
-						<div class="flex items-start gap-3 rounded border border-[var(--color-border)] bg-white/[0.03] px-3 py-2">
+					{#each typeSchema.properties as prop, idx}
+						<div
+							class="flex items-start gap-3 rounded border border-[var(--color-border)] bg-white/[0.03] px-3 py-2"
+							class:drag-over={dragOverIdx === idx}
+							role="row"
+							tabindex="0"
+							draggable="true"
+							ondragstart={(e) => onDragStart(e, idx)}
+							ondragover={(e) => onDragOver(e, idx)}
+							ondragleave={() => (dragOverIdx = null)}
+							ondrop={(e) => onDrop(e, idx)}
+						>
+							<span class="cursor-grab pr-1 pt-0.5 text-[var(--color-muted)] hover:text-[var(--color-text)]" title="Drag to reorder">⋮⋮</span>
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
 									<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
@@ -269,5 +323,9 @@
 		background-color: rgba(108, 182, 255, 0.12);
 		color: var(--color-accent);
 		border-color: var(--color-border);
+	}
+	.drag-over {
+		border-color: var(--color-accent);
+		background-color: rgba(108, 182, 255, 0.1);
 	}
 </style>

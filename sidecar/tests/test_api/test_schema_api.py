@@ -208,6 +208,33 @@ class TestPersistence:
         assert "ranking" in text
 
 
+class TestReorderProperties:
+    def test_reorder(self, client: TestClient) -> None:
+        for k in ["a", "b", "c"]:
+            client.post(
+                "/api/schema/types/university/properties",
+                json={"type": "text", "key": k, "name": k.upper()},
+            )
+        r = client.post(
+            "/api/schema/types/university/reorder",
+            json={"ordered_keys": ["c", "a", "b"]},
+        )
+        assert r.status_code == 200
+        keys = [p["key"] for p in r.json()["properties"]]
+        assert keys == ["c", "a", "b"]
+
+    def test_mismatch_returns_409(self, client: TestClient) -> None:
+        client.post(
+            "/api/schema/types/university/properties",
+            json={"type": "text", "key": "a", "name": "A"},
+        )
+        r = client.post(
+            "/api/schema/types/university/reorder",
+            json={"ordered_keys": ["a", "ghost"]},
+        )
+        assert r.status_code == 409
+
+
 class TestPurgeOrphans:
     def test_refuses_if_key_still_declared(self, client: TestClient) -> None:
         client.post(

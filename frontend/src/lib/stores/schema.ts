@@ -14,6 +14,7 @@ import {
 	getSchema,
 	getTypeSchema,
 	patchProperty as apiPatch,
+	reorderProperties as apiReorder,
 	type PropertyPatch
 } from '../api/schema';
 import type { EntityType } from '../types';
@@ -81,6 +82,9 @@ export const schemaStore = {
 	},
 	async deleteProperty(type: EntityType, key: string): Promise<void> {
 		mergeTypeSchema(await apiDelete(type, key));
+	},
+	async reorderProperties(type: EntityType, orderedKeys: string[]): Promise<void> {
+		mergeTypeSchema(await apiReorder(type, orderedKeys));
 	},
 	async applyTierTemplate(types: EntityType[]): Promise<{ added: EntityType[]; existed: EntityType[] }> {
 		const result = await apiTierTemplate(types);

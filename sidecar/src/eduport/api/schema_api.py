@@ -155,6 +155,27 @@ def patch_property(
     return _entity_schema_payload(entity_type, new_schema)
 
 
+class ReorderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ordered_keys: list[str]
+
+
+@router.post("/types/{entity_type}/reorder")
+def reorder_properties(
+    entity_type: EntityType,
+    body: ReorderBody = Body(...),
+    state: AppState = Depends(get_state),
+) -> dict:
+    try:
+        new_schema = state.schema_store.reorder_properties(entity_type, body.ordered_keys)
+    except SchemaStoreError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Re-index isn't strictly necessary (rows are unchanged) but keeps
+    # caller assumptions simple.
+    _reindex(state, new_schema)
+    return _entity_schema_payload(entity_type, new_schema)
+
+
 @router.delete("/types/{entity_type}/properties/{key}", status_code=200)
 def delete_property(
     entity_type: EntityType,

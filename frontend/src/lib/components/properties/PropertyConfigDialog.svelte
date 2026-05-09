@@ -108,6 +108,33 @@
 		options = options.map((o, i) => (i === idx ? { ...o, ...patch } : o));
 	}
 
+	let optDragIdx: number | null = $state(null);
+	let optDragOverIdx: number | null = $state(null);
+	function onOptDragStart(e: DragEvent, idx: number) {
+		optDragIdx = idx;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', String(idx));
+		}
+	}
+	function onOptDragOver(e: DragEvent, idx: number) {
+		if (optDragIdx === null || optDragIdx === idx) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		optDragOverIdx = idx;
+	}
+	function onOptDrop(e: DragEvent, dropIdx: number) {
+		e.preventDefault();
+		const fromIdx = optDragIdx;
+		optDragIdx = null;
+		optDragOverIdx = null;
+		if (fromIdx === null || fromIdx === dropIdx) return;
+		const next = [...options];
+		const [moved] = next.splice(fromIdx, 1);
+		next.splice(dropIdx, 0, moved);
+		options = next;
+	}
+
 	function buildPayload(): Property {
 		const base = {
 			key,
@@ -279,7 +306,18 @@
 						</button>
 					</div>
 					{#each options as opt, idx}
-						<div class="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
+						<div
+							class="grid grid-cols-[auto_1fr_1fr_auto_auto] items-center gap-2"
+							class:drag-over={optDragOverIdx === idx}
+							role="row"
+							tabindex="0"
+							draggable="true"
+							ondragstart={(e) => onOptDragStart(e, idx)}
+							ondragover={(e) => onOptDragOver(e, idx)}
+							ondragleave={() => (optDragOverIdx = null)}
+							ondrop={(e) => onOptDrop(e, idx)}
+						>
+							<span class="cursor-grab text-[var(--color-muted)]" title="Drag to reorder">⋮⋮</span>
 							<input
 								placeholder="value"
 								value={opt.value}
@@ -359,6 +397,10 @@
 		background-color: rgba(108, 182, 255, 0.18);
 		color: var(--color-accent);
 		border-color: var(--color-accent);
+	}
+	.drag-over {
+		background-color: rgba(108, 182, 255, 0.1);
+		border-radius: 4px;
 	}
 	button {
 		border-color: var(--color-border);

@@ -69,6 +69,16 @@ export function deleteProperty(type: EntityType, key: string): Promise<EntityTyp
 	});
 }
 
+export function reorderProperties(
+	type: EntityType,
+	orderedKeys: string[]
+): Promise<EntityTypeSchema> {
+	return apiFetch(`/api/schema/types/${type}/reorder`, {
+		method: 'POST',
+		body: JSON.stringify({ ordered_keys: orderedKeys })
+	});
+}
+
 export function applyTierTemplate(types: EntityType[]): Promise<{
 	results: Record<string, { status: 'added' | 'exists' }>;
 	schema: FullSchema;

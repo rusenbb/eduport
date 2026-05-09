@@ -197,6 +197,29 @@ class SchemaStore:
             self._cached = new_schema
             return new_schema
 
+    def reorder_properties(
+        self, entity_type: EntityType, ordered_keys: list[str]
+    ) -> Schema:
+        """Reorder the properties of ``entity_type`` to match ``ordered_keys``.
+
+        ``ordered_keys`` must contain exactly the existing keys (no
+        additions, no deletions). The returned schema preserves all
+        per-property metadata; only ordering changes. Persists to disk.
+        """
+        with self._lock:
+            schema = self._cached or self._load_locked()
+            entity_schema = schema.for_type(entity_type)
+            existing = {p.key: p for p in entity_schema.properties}
+            if set(ordered_keys) != set(existing.keys()):
+                raise SchemaStoreError(
+                    "ordered_keys must contain exactly the existing property keys"
+                )
+            new_props = [existing[k] for k in ordered_keys]
+            new_schema = self._with_properties(schema, entity_type, new_props)
+            self._save_locked(new_schema)
+            self._cached = new_schema
+            return new_schema
+
     def delete_property(self, entity_type: EntityType, key: str) -> Schema:
         """Remove a property from the schema. Existing entity values are orphaned."""
         with self._lock:
