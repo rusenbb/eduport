@@ -20,6 +20,7 @@ from eduport.api.search import router as search_router
 from eduport.api.settings_api import router as settings_router
 from eduport.api.status_api import router as status_router
 from eduport.api.trash_api import router as trash_router
+from eduport.api.views_api import router as views_router
 from eduport.index.reconcile import reconcile
 from eduport.index.writer import (
     clear_parse_error,
@@ -33,6 +34,7 @@ from eduport.settings import Settings
 from eduport.store.files import EntityFileStore
 from eduport.store.schema_store import SchemaStore
 from eduport.store.trash import LocalTrash
+from eduport.store.view_store import ViewStore
 from eduport.watcher import EduportWatcher
 
 
@@ -45,6 +47,11 @@ def _on_schema_changed(state: AppState) -> None:
     """
     state.schema_store.reload()
     reindex_all_properties(state.conn, state.schema_store.current())
+
+
+def _on_views_changed(state: AppState) -> None:
+    """Reload the views file. Cheap — no derived index to rebuild."""
+    state.view_store.reload()
 
 
 def build_app(
@@ -78,6 +85,9 @@ def build_app(
                 state = app.state.eduport
                 if kind == "schema_modified":
                     _on_schema_changed(state)
+                    return
+                if kind == "views_modified":
+                    _on_views_changed(state)
                     return
                 if state.file_store.was_recently_written(path):
                     return
@@ -117,6 +127,8 @@ def build_app(
     )
     schema_store = SchemaStore(settings.data_folder)
     schema_store.load()  # seeds .eduport/schema.yaml on first run
+    view_store = ViewStore(settings.data_folder)
+    view_store.load()  # seeds .eduport/views.yaml on first run
     app.state.eduport = AppState(
         settings=settings,
         conn=conn,
@@ -124,6 +136,7 @@ def build_app(
         file_store=EntityFileStore(settings.data_folder),
         trash=LocalTrash(settings.data_folder),
         schema_store=schema_store,
+        view_store=view_store,
     )
     app.include_router(health_router)
     app.include_router(entities_router)
@@ -136,4 +149,5 @@ def build_app(
     app.include_router(settings_router)
     app.include_router(status_router)
     app.include_router(trash_router)
+    app.include_router(views_router)
     return app

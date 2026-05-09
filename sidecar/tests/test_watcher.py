@@ -42,6 +42,27 @@ def test_watcher_fires_on_create_modify_delete(folder):
         watcher.stop()
 
 
+def test_watcher_emits_views_modified_for_views_yaml(folder):
+    """External edits to `.eduport/views.yaml` produce a `views_modified` event."""
+    seen: list[tuple[str, str]] = []
+
+    def on_event(kind: str, path: Path) -> None:
+        seen.append((kind, path.name))
+
+    watcher = EduportWatcher(folder, on_event)
+    watcher.start()
+    try:
+        views_path = folder / ".eduport" / "views.yaml"
+        views_path.write_text("version: 1\ntypes: {}\n")
+        _wait(
+            lambda: any(
+                k == "views_modified" and n == "views.yaml" for k, n in seen
+            )
+        )
+    finally:
+        watcher.stop()
+
+
 def test_watcher_emits_schema_modified_for_schema_yaml(folder):
     """External edits to `.eduport/schema.yaml` produce a `schema_modified`
     event; non-schema files in `.eduport/` are ignored."""

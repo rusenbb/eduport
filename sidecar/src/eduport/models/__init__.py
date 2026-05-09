@@ -30,6 +30,16 @@ from eduport.models.schema import (
     empty_schema,
 )
 from eduport.models.university import University
+from eduport.models.view import (
+    VIEWS_VERSION,
+    SortDir,
+    TypeViews,
+    View,
+    ViewFilter,
+    ViewKind,
+    ViewsFile,
+    empty_views_file,
+)
 
 __all__ = [
     "Application",
@@ -60,8 +70,16 @@ __all__ = [
     "SelectOption",
     "SingleSelectProperty",
     "TextProperty",
+    "SortDir",
+    "TypeViews",
     "University",
     "UrlProperty",
+    "VIEWS_VERSION",
+    "View",
+    "ViewFilter",
+    "ViewKind",
+    "ViewsFile",
     "WikiLink",
     "empty_schema",
+    "empty_views_file",
 ]

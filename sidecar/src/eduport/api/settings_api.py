@@ -6,6 +6,7 @@ from eduport.settings import Settings, save_settings
 from eduport.store.files import EntityFileStore
 from eduport.store.schema_store import SchemaStore
 from eduport.store.trash import LocalTrash
+from eduport.store.view_store import ViewStore
 
 router = APIRouter()
 
@@ -31,6 +32,8 @@ def put_settings(payload: Settings, state: AppState = Depends(get_state)) -> dic
         state.trash = LocalTrash(payload.data_folder)
         state.schema_store = SchemaStore(payload.data_folder)
         state.schema_store.load()
+        state.view_store = ViewStore(payload.data_folder)
+        state.view_store.load()
         reconcile(state.conn, payload.data_folder, schema=state.schema_store.current())
     out = payload.model_dump(mode="json")
     out["data_folder"] = str(out["data_folder"])
