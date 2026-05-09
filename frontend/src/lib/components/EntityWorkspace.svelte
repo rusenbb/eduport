@@ -23,7 +23,10 @@
 	import EntityList from './EntityList.svelte';
 	import EmailGroupedList from './EmailGroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
+	import TableView from './TableView.svelte';
+	import ColumnVisibilityMenu from './properties/ColumnVisibilityMenu.svelte';
 	import PropertyFilterBar from './properties/PropertyFilterBar.svelte';
+	import { FIELD_DEFS } from '$lib/entities/meta';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
 
@@ -45,7 +48,13 @@
 		writeFilterParams(url.searchParams, next);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
-	const view = $derived(page.url.searchParams.get('view') === 'kanban' ? 'kanban' : 'list');
+	type ViewMode = 'list' | 'table' | 'kanban';
+	const view: ViewMode = $derived.by(() => {
+		const v = page.url.searchParams.get('view');
+		if (v === 'kanban' && type === 'application') return 'kanban';
+		if (v === 'table') return 'table';
+		return 'list';
+	});
 	const groupBy = $derived(page.url.searchParams.get('group') === 'application' ? 'application' : 'none');
 	const customProperties = $derived($schemaStore.schema?.types[type]?.properties ?? []);
 
@@ -73,11 +82,63 @@
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
-	function setView(next: 'list' | 'kanban') {
+	function setView(next: ViewMode) {
 		const url = new URL(page.url);
 		if (next === 'list') url.searchParams.delete('view');
 		else url.searchParams.set('view', next);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+
+	// Column visibility (table view) — persisted per entity type in
+	// localStorage. Defaults to "all custom properties, no built-ins" so the
+	// table starts empty-but-functional and the user opts in to the noise.
+	const COLUMNS_STORAGE_PREFIX = 'eduport:columns:';
+
+	function loadColumns(t: EntityType): { custom: string[]; builtin: string[] } | null {
+		if (typeof window === 'undefined') return null;
+		try {
+			const raw = window.localStorage.getItem(COLUMNS_STORAGE_PREFIX + t);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			if (typeof parsed === 'object' && Array.isArray(parsed.custom) && Array.isArray(parsed.builtin)) {
+				return { custom: parsed.custom, builtin: parsed.builtin };
+			}
+		} catch {
+			/* ignore */
+		}
+		return null;
+	}
+
+	function saveColumns(t: EntityType, value: { custom: string[]; builtin: string[] }) {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(COLUMNS_STORAGE_PREFIX + t, JSON.stringify(value));
+		} catch {
+			/* localStorage is best-effort */
+		}
+	}
+
+	let visibleCustomKeys: string[] = $state([]);
+	let visibleBuiltinKeys: string[] = $state([]);
+
+	$effect(() => {
+		// Whenever entity type changes, restore columns from localStorage,
+		// or seed sensible defaults: all custom properties, no built-ins.
+		const t = type;
+		const stored = loadColumns(t);
+		if (stored) {
+			visibleCustomKeys = stored.custom;
+			visibleBuiltinKeys = stored.builtin;
+		} else {
+			visibleCustomKeys = customProperties.map((p) => p.key);
+			visibleBuiltinKeys = [];
+		}
+	});
+
+	function persistColumns(next: { custom: string[]; builtin: string[] }) {
+		visibleCustomKeys = next.custom;
+		visibleBuiltinKeys = next.builtin;
+		saveColumns(type, next);
 	}
 
 	function setGroupBy(next: 'none' | 'application') {
@@ -191,34 +252,45 @@
 				<h1 class="text-sm font-semibold">{TYPE_LABELS[type]}</h1>
 				<p class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">{items.length} items</p>
 			</div>
-			{#if type === 'application'}
-				<div class="flex items-center gap-2">
-					{#if view === 'kanban' && kanbanGroupableProps.length > 0}
-						<label class="flex items-center gap-1 text-xs">
-							<span class="text-[var(--color-muted)]">Group by</span>
-							<select
-								value={kanbanGroupKey}
-								onchange={(e) => setKanbanGroup((e.currentTarget as HTMLSelectElement).value)}
-								class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-xs"
-							>
-								<option value="status">Status (built-in)</option>
-								{#each kanbanGroupableProps as p}
-									<option value={p.key}>{p.name}</option>
-								{/each}
-							</select>
-						</label>
-					{/if}
+			<div class="flex items-center gap-2">
+				{#if view === 'table'}
+					<ColumnVisibilityMenu
+						properties={customProperties}
+						builtinFields={FIELD_DEFS[type] ?? []}
+						{visibleCustomKeys}
+						{visibleBuiltinKeys}
+						onChange={persistColumns}
+					/>
+				{/if}
+				{#if type === 'application' && view === 'kanban' && kanbanGroupableProps.length > 0}
+					<label class="flex items-center gap-1 text-xs">
+						<span class="text-[var(--color-muted)]">Group by</span>
+						<select
+							value={kanbanGroupKey}
+							onchange={(e) => setKanbanGroup((e.currentTarget as HTMLSelectElement).value)}
+							class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-xs"
+						>
+							<option value="status">Status (built-in)</option>
+							{#each kanbanGroupableProps as p}
+								<option value={p.key}>{p.name}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
+				{#if type === 'email'}
 					<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
-						<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
-						<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
+						<button class="rounded px-2 py-1" class:active={groupBy === 'none'} onclick={() => setGroupBy('none')}>Chronological</button>
+						<button class="rounded px-2 py-1" class:active={groupBy === 'application'} onclick={() => setGroupBy('application')}>By app</button>
 					</div>
-				</div>
-			{:else if type === 'email'}
+				{/if}
 				<div class="flex rounded border border-[var(--color-border)] p-0.5 text-xs">
-					<button class="rounded px-2 py-1" class:active={groupBy === 'none'} onclick={() => setGroupBy('none')}>Chronological</button>
-					<button class="rounded px-2 py-1" class:active={groupBy === 'application'} onclick={() => setGroupBy('application')}>By application</button>
+					<button class="rounded px-2 py-1" class:active={view === 'list'} onclick={() => setView('list')}>List</button>
+					<button class="rounded px-2 py-1" class:active={view === 'table'} onclick={() => setView('table')}>Table</button>
+					{#if type === 'application'}
+						<button class="rounded px-2 py-1" class:active={view === 'kanban'} onclick={() => setView('kanban')}>Kanban</button>
+					{/if}
 				</div>
-			{/if}
+			</div>
 		</header>
 
 		{#if customProperties.length > 0 && !(type === 'application' && view === 'kanban')}
@@ -238,6 +310,25 @@
 				<KanbanBoard
 					groupBy={kanbanGroupBy}
 					onPick={(id) => goto(`/application/${id}`)}
+					onUpdated={(id) => {
+						void loadList();
+						if (id === selectedFileId) void loadDetail();
+					}}
+				/>
+			{:else if view === 'table'}
+				<TableView
+					entityType={type}
+					{items}
+					{details}
+					properties={customProperties}
+					{visibleCustomKeys}
+					{visibleBuiltinKeys}
+					selectedFileId={selectedFileId}
+					sortKey={propertyFilters.sort}
+					sortDir={propertyFilters.sortDir}
+					onSort={(key, dir) => {
+						syncFiltersToUrl({ ...propertyFilters, sort: key, sortDir: key ? dir : undefined });
+					}}
 					onUpdated={(id) => {
 						void loadList();
 						if (id === selectedFileId) void loadDetail();
