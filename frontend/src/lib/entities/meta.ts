@@ -152,33 +152,39 @@ export function readField(entity: Record<string, unknown>, key: string): string 
 
 export function summarizeDetail(detail: EntityDetail): string {
 	const e = detail.entity;
+	const tags = userTags(e, detail.type);
+	const tagSummary = tags.length > 0 ? '#' + tags.join(' #') : '';
+	const join = (parts: (string | undefined | null)[]) =>
+		parts.filter((p): p is string => !!p && p.length > 0).join(' · ');
+
 	switch (detail.type) {
+		case 'university':
+			return join([readField(e, 'country'), readField(e, 'city'), tagSummary]);
+		case 'lab':
+			return join([readField(e, 'focus'), targetOf(e.university) ?? '', tagSummary]);
 		case 'program':
-			return [readField(e, 'level'), readField(e, 'deadline'), targetOf(e.university) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'level'), readField(e, 'deadline'), targetOf(e.university) ?? '']);
 		case 'application':
-			return [readField(e, 'status'), readField(e, 'internal_deadline'), targetOf(e.program) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([
+				readField(e, 'status'),
+				readField(e, 'internal_deadline'),
+				targetOf(e.program) ?? ''
+			]);
 		case 'person':
-			return [readField(e, 'role'), readField(e, 'email'), targetOf(e.university) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'role'), readField(e, 'email'), targetOf(e.university) ?? '']);
 		case 'document':
-			return [readField(e, 'status'), readField(e, 'date'), readField(e, 'file')]
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'status'), readField(e, 'date'), readField(e, 'file')]);
 		case 'email':
-			return [readField(e, 'direction'), readField(e, 'date'), readField(e, 'subject')]
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'direction'), readField(e, 'date'), readField(e, 'subject')]);
+		case 'note':
+			return tagSummary;
 		default:
-			return userTags(e, detail.type).join(' · ');
+			return tagSummary;
 	}
 }
 
 export function summarizeItem(item: EntityListItem, detail?: EntityDetail | null): string {
-	if (detail) return summarizeDetail(detail);
-	return item.file_id;
+	if (!detail) return ''; // file_id is the row's secondary line elsewhere; don't leak it as the "summary" placeholder
+	const summary = summarizeDetail(detail);
+	return summary;
 }

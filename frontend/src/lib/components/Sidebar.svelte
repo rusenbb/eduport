@@ -171,6 +171,16 @@
 				<span class="text-[10px] text-[var(--color-muted)]">{counts[item.type] ?? 0}</span>
 			</a>
 		{/each}
+		<!-- Schema link sits under Database — visually distinct (smaller text,
+			 muted color, italic) so it doesn't read as a 9th entity type. -->
+		<a
+			href="/settings/schema"
+			class="ml-1 mt-0.5 flex items-center gap-2 rounded px-2 py-1 text-[11px] italic text-[var(--color-muted)] hover:bg-white/5 hover:text-[var(--color-text)]"
+			class:active={isActive('/settings/schema')}
+		>
+			<Icon name="sliders" size={12} />
+			<span>Customize fields…</span>
+		</a>
 	</div>
 
 	{#if chipProperties.length > 0}
@@ -222,9 +232,6 @@
 	</div>
 
 	<div class="mt-auto flex flex-col gap-1">
-		<a href="/settings/schema" class="flex items-center gap-2.5 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/settings/schema')}>
-			<Icon name="settings" /><span>Schema</span>
-		</a>
 		<a href="/trash" class="flex items-center gap-2.5 rounded px-2 py-1.5 text-[var(--color-muted)] hover:bg-white/5" class:active={isActive('/trash')}>
 			<Icon name="trash" /><span>Trash</span>
 		</a>

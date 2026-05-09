@@ -3,6 +3,7 @@
 	import { summarizeItem } from '$lib/entities/meta';
 	import EntityRow from './EntityRow.svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 
 	let {
 		items,
@@ -15,6 +16,14 @@
 		selectedFileId?: string;
 		details?: Record<string, EntityDetail | null>;
 	} = $props();
+
+	function navigate(fileId: string) {
+		// Preserve query params (view, filters, sort, group, view_id) when
+		// jumping into the detail panel so the list view stays as configured.
+		const url = new URL(page.url);
+		url.pathname = `/${type}/${fileId}`;
+		void goto(url, { keepFocus: true });
+	}
 </script>
 
 {#if items.length === 0}
@@ -32,7 +41,7 @@
 				{type}
 				selected={item.file_id === selectedFileId}
 				summary={summarizeItem(item, details[item.file_id])}
-				onclick={() => goto(`/${type}/${item.file_id}`)}
+				onclick={() => navigate(item.file_id)}
 			/>
 		{/each}
 	</div>

@@ -419,7 +419,11 @@
 				<KanbanBoard
 					groupBy={kanbanGroupBy}
 					cardProperties={kanbanCardProperties}
-					onPick={(id) => goto(`/application/${id}`)}
+					onPick={(id) => {
+						const url = new URL(page.url);
+						url.pathname = `/application/${id}`;
+						void goto(url, { keepFocus: true });
+					}}
 					onUpdated={(id) => {
 						void loadList();
 						if (id === selectedFileId) void loadDetail();

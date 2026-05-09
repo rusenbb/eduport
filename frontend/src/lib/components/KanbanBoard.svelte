@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
 	import type { ApplicationStatus, EntityDetail, EntityListItem } from '$lib/types';
 	import { COLOR_CLASSES, type OptionColor, type Property } from '$lib/types/schema';
@@ -151,7 +152,15 @@
 								class="rounded border border-[var(--color-border)] bg-white/5 p-2 text-left text-sm hover:border-[var(--color-accent)]"
 								draggable={true}
 								ondragstart={(e) => dragStart(item.file_id, col.value, e)}
-								onclick={() => (onPick ? onPick(item.file_id) : goto(`/application/${item.file_id}`))}
+								onclick={() => {
+								if (onPick) {
+									onPick(item.file_id);
+								} else {
+									const url = new URL(page.url);
+									url.pathname = `/application/${item.file_id}`;
+									void goto(url, { keepFocus: true });
+								}
+							}}
 							>
 								<div class="truncate font-medium">{item.name}</div>
 								{#if cardProperties.length > 0}

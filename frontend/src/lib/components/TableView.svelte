@@ -10,6 +10,7 @@
 	 * clicking a header rotates through asc → desc → none.
 	 */
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { updateEntity } from '$lib/api/entities';
 	import { FIELD_DEFS, type FieldDef } from '$lib/entities/meta';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
@@ -167,7 +168,12 @@
 	}
 
 	function navigate(fileId: string) {
-		void goto(`/${entityType}/${fileId}`);
+		// Preserve all query params (view=table, filters, sort, group, view_id)
+		// so opening an entity in the detail panel keeps the surrounding view
+		// configured as the user left it.
+		const url = new URL(page.url);
+		url.pathname = `/${entityType}/${fileId}`;
+		void goto(url, { keepFocus: true });
 	}
 </script>
 
@@ -176,13 +182,16 @@
 		<thead class="sticky top-0 z-10 bg-[var(--color-panel)]">
 			<tr class="border-b border-[var(--color-border)]">
 				<th
-					class="sticky left-0 z-20 cursor-pointer bg-[var(--color-panel)] px-2 py-1.5 text-left font-medium hover:bg-white/5"
+					class="sticky left-0 z-20 group cursor-pointer bg-[var(--color-panel)] px-2 py-1.5 text-left font-medium hover:bg-white/5"
 					onclick={() => clickHeader('name')}
+					title="Click to sort"
 				>
 					<span class="flex items-center gap-1">
 						<span>Name</span>
 						{#if sortKey === 'name'}
 							<span class="text-[10px] text-[var(--color-accent)]">{sortDir === 'desc' ? '↓' : '↑'}</span>
+						{:else}
+							<span class="text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">↕</span>
 						{/if}
 					</span>
 				</th>
@@ -198,14 +207,17 @@
 				{/each}
 				{#each visibleCustoms as prop}
 					<th
-						class="cursor-pointer border-l border-[var(--color-border)] px-2 py-1.5 text-left font-medium hover:bg-white/5"
+						class="group cursor-pointer border-l border-[var(--color-border)] px-2 py-1.5 text-left font-medium hover:bg-white/5"
 						onclick={() => clickHeader(prop.key)}
+						title="Click to sort"
 					>
 						<span class="flex items-center gap-1">
 							<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
 							<span class="truncate">{prop.name}</span>
 							{#if sortKey === prop.key}
 								<span class="text-[10px] text-[var(--color-accent)]">{sortDir === 'desc' ? '↓' : '↑'}</span>
+							{:else}
+								<span class="text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">↕</span>
 							{/if}
 						</span>
 					</th>
