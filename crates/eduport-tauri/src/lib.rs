@@ -112,9 +112,11 @@ fn read_settings_file(app: &tauri::AppHandle) -> Result<Option<BootstrapSettings
     if !settings_path.exists() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(&settings_path)
-        .map_err(|e| format!("failed to read settings: {e}"))?;
-    toml::from_str(&raw).map(Some).map_err(|e| format!("failed to parse settings: {e}"))
+    let raw =
+        fs::read_to_string(&settings_path).map_err(|e| format!("failed to read settings: {e}"))?;
+    toml::from_str(&raw)
+        .map(Some)
+        .map_err(|e| format!("failed to parse settings: {e}"))
 }
 
 fn sanitize_zoom(zoom_factor: f64) -> f64 {
@@ -226,8 +228,8 @@ pub fn run() {
                     match ensure_sidecar(app.handle(), &state) {
                         Ok(url) => {
                             if let Some(window) = app.get_webview_window("main") {
-                                let _ = window
-                                    .eval(&format!("window.__EDUPORT_API_URL__ = '{}';", url));
+                                let _ =
+                                    window.eval(format!("window.__EDUPORT_API_URL__ = '{}';", url));
                             }
                         }
                         Err(e) => log::error!("failed to start sidecar: {}", e),

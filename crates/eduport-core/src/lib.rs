@@ -29,6 +29,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod entity_type;
+pub mod schema;
+pub mod settings;
+pub mod view;
+
+pub use entity_type::EntityType;
+pub use settings::{Settings, Theme, load_settings, save_settings};
+
 /// Crate-level error type. Wraps vaultdb-core errors plus eduport-
 /// specific failure modes (schema validation, FTS5 reconcile, etc.).
 #[derive(Debug, thiserror::Error)]
@@ -48,7 +56,6 @@ pub type Result<T> = std::result::Result<T, EduportError>;
 /// Re-export the foundational vaultdb-core types so eduport-tauri and
 /// future eduport-cli consumers don't need a second dependency.
 pub use vaultdb_core::{
-    DeleteBuilder, Direction, Expr, GraphScope, LinkGraph, MoveBuilder, MutationReport,
-    Predicate, Query, Record, RenameBuilder, SortKey, UpdateBuilder, Value, Vault,
-    WriteOptions,
+    DeleteBuilder, Direction, Expr, GraphScope, LinkGraph, MoveBuilder, MutationReport, Predicate,
+    Query, Record, RenameBuilder, SortKey, UpdateBuilder, Value, Vault, WriteOptions,
 };
