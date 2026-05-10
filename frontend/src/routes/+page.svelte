@@ -2,8 +2,11 @@
 	import { goto } from '$app/navigation';
 	import { getAppStatus } from '$lib/api/status';
 	import { listEntities, getEntity } from '$lib/api/entities';
+	import { listenCoreEvent } from '$lib/api/client';
 	import { createSampleData } from '$lib/sample-data';
 	import { settings } from '$lib/stores/settings';
+	import { isTauri } from '$lib/tauri';
+	import { onMount } from 'svelte';
 	import type { ApplicationStatus, EntityListItem } from '$lib/types';
 
 	const statuses: ApplicationStatus[] = [
@@ -142,6 +145,55 @@
 	$effect(() => {
 		void load();
 	});
+
+	// Auto-refresh when external edits land.
+	onMount(() => {
+		if (!isTauri()) return;
+		let unlisten: (() => void) | null = null;
+		let pending: ReturnType<typeof setTimeout> | null = null;
+		void listenCoreEvent<{ kind: string }>('eduport:vault-event', (payload) => {
+			if (
+				payload.kind === 'entity_changed' ||
+				payload.kind === 'entity_deleted' ||
+				payload.kind === 'needs_rescan'
+			) {
+				if (pending) clearTimeout(pending);
+				pending = setTimeout(() => {
+					pending = null;
+					void load();
+				}, 200);
+			}
+		}).then((u) => {
+			unlisten = u;
+		});
+		return () => {
+			if (pending) clearTimeout(pending);
+			unlisten?.();
+		};
+	});
+
+	function daysUntil(dateStr: string): number {
+		const today = new Date().toISOString().slice(0, 10);
+		const a = new Date(today + 'T00:00:00').getTime();
+		const b = new Date(dateStr + 'T00:00:00').getTime();
+		return Math.round((b - a) / 86_400_000);
+	}
+
+	function relativeLabel(dateStr: string): string {
+		const d = daysUntil(dateStr);
+		if (d < 0) return `${-d}d overdue`;
+		if (d === 0) return 'Today';
+		if (d === 1) return 'Tomorrow';
+		if (d < 7) return `in ${d}d`;
+		return `in ${Math.round(d / 7)}w`;
+	}
+
+	function urgencyClass(dateStr: string): string {
+		const d = daysUntil(dateStr);
+		if (d < 0) return 'urgency-overdue';
+		if (d <= 7) return 'urgency-soon';
+		return 'urgency-near';
+	}
 </script>
 
 <main class="p-6">
@@ -195,11 +247,12 @@
 					{#each upcoming as item}
 						<li>
 							<button
-								class="flex w-full items-center justify-between border-b border-[var(--color-border)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-white/5"
+								class="flex w-full items-center justify-between gap-3 border-b border-[var(--color-border)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-white/5"
 								onclick={() => goto(`/${item.type}/${item.fileId}`)}
 							>
-								<span class="truncate">{item.name}</span>
-								<span class="ml-3 flex-shrink-0 font-mono text-xs text-[var(--color-warn)]">{item.deadline}</span>
+								<span class="min-w-0 flex-1 truncate">{item.name}</span>
+								<span class="flex-shrink-0 text-xs {urgencyClass(item.deadline)}">{relativeLabel(item.deadline)}</span>
+								<span class="flex-shrink-0 font-mono text-[10px] text-[var(--color-muted)]">{item.deadline}</span>
 							</button>
 						</li>
 					{/each}
@@ -251,3 +304,17 @@
 		</section>
 	{/if}
 </main>
+
+<style>
+	.urgency-overdue {
+		color: var(--color-bad);
+		font-weight: 600;
+	}
+	.urgency-soon {
+		color: var(--color-warn);
+		font-weight: 500;
+	}
+	.urgency-near {
+		color: var(--color-muted);
+	}
+</style>
