@@ -25,6 +25,11 @@ html2text = "0.15"
 # distros. `serde_json` is reused for the FTS5-side frontmatter blob and for
 # JSON-encoded multi-select property values.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# The watcher uses notify with the debouncer-full overlay so we get
+# rename-aware event coalescing during sync storms (Dropbox/iCloud/Syncthing
+# can deliver hundreds of events per second on initial sync).
+notify = "8.2"
+notify-debouncer-full = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

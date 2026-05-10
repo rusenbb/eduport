@@ -37,6 +37,7 @@ pub mod schema;
 pub mod settings;
 pub mod slug;
 pub mod view;
+pub mod watcher;
 pub mod wikilink;
 
 pub use entity_type::EntityType;
