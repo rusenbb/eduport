@@ -35,6 +35,7 @@ export function formatShortcut(parts: string[]): string {
 			if (p === 'up') return '↑';
 			if (p === 'down') return '↓';
 			if (p === 'backspace') return isMac ? '⌫' : 'Backspace';
+			if (p === 'right-click') return 'Right-click';
 			return p;
 		})
 		.join(sep);

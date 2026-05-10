@@ -111,6 +111,58 @@
 		await viewsStore.delete(entityType, v.id);
 		if (wasActive) onActiveDeleted();
 	}
+
+	// Drag-and-drop reorder. HTML5 drag API is enough here — light
+	// touch since views.reorder already exists on the store. We track
+	// the dragged id and the hover-target id so a thin marker shows
+	// where the drop will land; on drop we commit a new order to the
+	// backend (which atomically rewrites views.yaml).
+	let draggingId: string | null = $state(null);
+	let dropTargetId: string | null = $state(null);
+
+	function onDragStart(event: DragEvent, v: View) {
+		draggingId = v.id;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', v.id);
+		}
+	}
+
+	function onDragOver(event: DragEvent, v: View) {
+		if (!draggingId || draggingId === v.id) return;
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		dropTargetId = v.id;
+	}
+
+	function onDragLeave(v: View) {
+		if (dropTargetId === v.id) dropTargetId = null;
+	}
+
+	async function onDrop(event: DragEvent, targetView: View) {
+		event.preventDefault();
+		const draggedId = draggingId;
+		draggingId = null;
+		dropTargetId = null;
+		if (!draggedId || draggedId === targetView.id) return;
+		const order = views.map((v) => v.id);
+		const from = order.indexOf(draggedId);
+		const to = order.indexOf(targetView.id);
+		if (from === -1 || to === -1) return;
+		order.splice(from, 1);
+		order.splice(to, 0, draggedId);
+		try {
+			await viewsStore.reorder(entityType, order);
+		} catch {
+			/* viewsStore will surface the failure; the next render
+			   reflects the unchanged on-disk order. */
+		}
+	}
+
+	function onDragEnd() {
+		draggingId = null;
+		dropTargetId = null;
+	}
 </script>
 
 <div class="flex items-center gap-1 overflow-x-auto border-b border-[var(--color-border)] px-2 pt-2 text-xs">
@@ -122,11 +174,23 @@
 		All
 	</button>
 	{#each views as v (v.id)}
-		<div class="relative flex items-stretch">
+		<div
+			class="relative flex items-stretch"
+			class:dragging={draggingId === v.id}
+			class:drop-target={dropTargetId === v.id}
+			role="group"
+			ondragover={(e) => onDragOver(e, v)}
+			ondragleave={() => onDragLeave(v)}
+			ondrop={(e) => onDrop(e, v)}
+		>
 			<button
 				class="flex items-center gap-1 whitespace-nowrap rounded-t border border-b-0 border-transparent px-3 py-1.5 hover:bg-white/5"
 				class:active={activeViewId === v.id}
 				onclick={() => onSelect(v)}
+				draggable="true"
+				ondragstart={(e) => onDragStart(e, v)}
+				ondragend={onDragEnd}
+				title="Drag to reorder"
 			>
 				{v.name}
 			</button>
@@ -236,5 +300,11 @@
 		border-color: rgba(98, 196, 84, 0.4);
 		background-color: rgba(98, 196, 84, 0.15);
 		color: var(--color-good);
+	}
+	.dragging {
+		opacity: 0.4;
+	}
+	.drop-target {
+		box-shadow: inset 2px 0 0 var(--color-accent);
 	}
 </style>

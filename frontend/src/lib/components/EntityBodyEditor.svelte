@@ -41,6 +41,11 @@
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			onCancel?.();
+			return;
+		}
+		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+			event.preventDefault();
+			if (!saving) void save();
 		}
 	}
 </script>

@@ -91,6 +91,13 @@
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			onCancel();
+			return;
+		}
+		// Cmd/Ctrl+Enter — submit even when focus is on a plain input
+		// (Enter alone is intercepted by the input itself).
+		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+			event.preventDefault();
+			if (!saving && name.trim()) void save();
 		}
 	}
 </script>

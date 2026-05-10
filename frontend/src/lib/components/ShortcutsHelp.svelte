@@ -15,6 +15,7 @@
 			rows: [
 				{ keys: ['mod', 'K'], label: 'Search across everything' },
 				{ keys: ['mod', 'N'], label: 'New entity (in the current type)' },
+				{ keys: ['mod', ','], label: 'Open Settings' },
 				{ keys: ['?'], label: 'Show this help' },
 				{ keys: ['esc'], label: 'Close any open dialog' }
 			]
@@ -24,9 +25,9 @@
 			rows: [
 				{ keys: ['J'], label: 'Move selection down (or ↓)' },
 				{ keys: ['K'], label: 'Move selection up (or ↑)' },
-				{ keys: ['enter'], label: 'Open the focused item' },
 				{ keys: ['G'], label: 'Jump to first item' },
-				{ keys: ['shift', 'G'], label: 'Jump to last item' }
+				{ keys: ['shift', 'G'], label: 'Jump to last item' },
+				{ keys: ['right-click'], label: 'Context menu on a row' }
 			]
 		},
 		{
@@ -36,6 +37,13 @@
 				{ keys: ['shift', 'E'], label: 'Edit body' },
 				{ keys: ['F'], label: 'Toggle focus mode' },
 				{ keys: ['mod', 'backspace'], label: 'Move entity to trash' }
+			]
+		},
+		{
+			title: 'Dialogs',
+			rows: [
+				{ keys: ['mod', 'enter'], label: 'Save (in any modal form)' },
+				{ keys: ['esc'], label: 'Close the dialog' }
 			]
 		}
 	];

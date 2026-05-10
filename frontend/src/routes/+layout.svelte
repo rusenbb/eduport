@@ -65,6 +65,13 @@
 			}
 			return;
 		}
+		// Cmd/Ctrl+, — jump to settings (familiar convention from
+		// most macOS apps, useful enough to alias on Linux too).
+		if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+			event.preventDefault();
+			void import('$app/navigation').then(({ goto }) => goto('/settings'));
+			return;
+		}
 	}
 
 	onMount(() => {
