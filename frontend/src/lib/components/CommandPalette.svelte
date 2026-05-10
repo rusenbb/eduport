@@ -123,6 +123,19 @@
 					{/each}
 				{/if}
 			</div>
+			<footer class="flex items-center justify-between gap-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]/40 px-4 py-1.5 text-[10px] text-[var(--color-muted)]">
+				<span>
+					<kbd class="rounded border border-[var(--color-border)] px-1">↑↓</kbd>
+					navigate
+					·
+					<kbd class="rounded border border-[var(--color-border)] px-1">↵</kbd>
+					open
+					·
+					<kbd class="rounded border border-[var(--color-border)] px-1">Esc</kbd>
+					close
+				</span>
+				<span>full-text across all types</span>
+			</footer>
 		</div>
 	</div>
 {/if}
