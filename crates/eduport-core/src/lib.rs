@@ -32,6 +32,7 @@
 pub mod eml;
 pub mod entity;
 pub mod entity_type;
+pub mod index;
 pub mod schema;
 pub mod settings;
 pub mod slug;

@@ -84,6 +84,23 @@ pub enum PropertyKind {
     Relation,
 }
 
+impl PropertyKind {
+    /// Wire-format name. Matches the kebab-case rename used by serde
+    /// and the `properties.type` column in the SQLite index.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PropertyKind::Text => "text",
+            PropertyKind::Number => "number",
+            PropertyKind::Date => "date",
+            PropertyKind::Checkbox => "checkbox",
+            PropertyKind::SingleSelect => "single-select",
+            PropertyKind::MultiSelect => "multi-select",
+            PropertyKind::Url => "url",
+            PropertyKind::Relation => "relation",
+        }
+    }
+}
+
 /// A user-declared property on an entity type. Tagged enum: the `type`
 /// field on the YAML side picks which variant to deserialise.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

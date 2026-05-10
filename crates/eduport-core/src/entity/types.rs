@@ -369,6 +369,23 @@ impl Entity {
         }
     }
 
+    /// User-defined custom fields — the `#[serde(flatten)]` map on each
+    /// variant. The indexer uses this to populate the `properties`
+    /// table and the FTS5 `custom_text` column. Built-in fields stay
+    /// on the typed structs and are not surfaced here.
+    pub fn custom(&self) -> &std::collections::BTreeMap<String, serde_yaml::Value> {
+        match self {
+            Entity::University(e) => &e.custom,
+            Entity::Lab(e) => &e.custom,
+            Entity::Person(e) => &e.custom,
+            Entity::Program(e) => &e.custom,
+            Entity::Application(e) => &e.custom,
+            Entity::Document(e) => &e.custom,
+            Entity::Email(e) => &e.custom,
+            Entity::Note(e) => &e.custom,
+        }
+    }
+
     /// Serialise to a YAML frontmatter block. Round-trips with
     /// [`Self::from_yaml`].
     pub fn to_yaml(&self) -> Result<String, String> {

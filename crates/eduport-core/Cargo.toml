@@ -20,6 +20,11 @@ url = { version = "2", features = ["serde"] }
 rand = "0.8"
 mailparse = "0.16"
 html2text = "0.15"
+# `bundled` vendors a known-good SQLite (with FTS5 compiled in), removing the
+# system-SQLite version drift that bit the Python sidecar on certain Linux
+# distros. `serde_json` is reused for the FTS5-side frontmatter blob and for
+# JSON-encoded multi-select property values.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
