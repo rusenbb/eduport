@@ -171,7 +171,7 @@ fn write_atomically(path: &Path, content: &str) -> Result<(), CommandError> {
     std::fs::create_dir_all(parent)?;
     let mut tmp = parent.join(
         path.file_name()
-            .map(|n| std::ffi::OsString::from(n))
+            .map(std::ffi::OsString::from)
             .unwrap_or_default(),
     );
     tmp.set_extension("md.tmp");

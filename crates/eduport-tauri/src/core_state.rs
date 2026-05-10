@@ -71,10 +71,6 @@ pub type EduportStateHandle = Mutex<Option<Arc<EduportState>>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BootError {
-    #[error("settings file does not exist yet: {0}")]
-    NoSettings(PathBuf),
-    #[error("failed to read settings: {0}")]
-    ReadSettings(String),
     #[error(transparent)]
     Eduport(#[from] eduport_core::EduportError),
     #[error(transparent)]

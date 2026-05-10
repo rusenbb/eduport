@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
 
+use crate::core_state::EduportStateHandle;
+
 struct SidecarState(Mutex<Option<sidecar::SidecarHandle>>);
 
 #[derive(Serialize)]
@@ -203,6 +205,48 @@ fn set_app_zoom(window: tauri::WebviewWindow, zoom_factor: f64) -> Result<(), St
     apply_zoom(&window, zoom_factor)
 }
 
+/// Try to boot eduport-core from the persisted settings.
+///
+/// Failure is logged at error level rather than aborting startup;
+/// the user can still complete first-run setup or fix a corrupted
+/// settings file from the GUI. The Phase 9 cutover keeps the
+/// sidecar running in parallel until Phase 11 deletes it, so the
+/// app remains functional even if the new state failed to boot.
+fn try_boot_eduport_core(app: &tauri::AppHandle) {
+    let state_handle = app.state::<EduportStateHandle>();
+    let path = match settings_path(app) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("settings_path: {e}");
+            return;
+        }
+    };
+    if !path.exists() {
+        log::info!("eduport-core boot deferred: no settings file at {}", path.display());
+        return;
+    }
+    let settings = match eduport_core::load_settings(&path) {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            log::info!("settings file empty; waiting for first-run setup");
+            return;
+        }
+        Err(e) => {
+            log::error!("eduport-core settings load failed: {e}");
+            return;
+        }
+    };
+    match core_state::build_state(app, &settings) {
+        Ok(state) => {
+            if let Ok(mut guard) = state_handle.lock() {
+                *guard = Some(state);
+                log::info!("eduport-core booted from {}", path.display());
+            }
+        }
+        Err(e) => log::error!("eduport-core build_state failed: {e}"),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -210,6 +254,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .manage(SidecarState(Mutex::new(None)))
+        // The eduport-core state is `Mutex<Option<Arc<...>>>` so it
+        // can be lazily populated after first-run setup completes.
+        .manage::<EduportStateHandle>(Mutex::new(None))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -246,9 +293,16 @@ pub fn run() {
                 Err(e) => log::error!("{}", e),
             }
 
+            // Boot eduport-core in parallel with the legacy sidecar.
+            // Phases 10 & 11 progressively retire the sidecar; this
+            // dual-boot is the migration window.
+            try_boot_eduport_core(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Legacy sidecar bootstrap (Phase 11 deletes these along
+            // with the sidecar.rs / sidecar process).
             bootstrap_settings,
             ensure_sidecar_started,
             get_bootstrap_status,
@@ -258,6 +312,50 @@ pub fn run() {
             reveal::open_path,
             reveal::read_file_bytes,
             reveal::reveal_in_file_manager,
+            // eduport-core entity CRUD
+            commands::entity::core_entity_list,
+            commands::entity::core_entity_get,
+            commands::entity::core_entity_resolve,
+            commands::entity::core_entity_create,
+            commands::entity::core_entity_update,
+            commands::entity::core_entity_delete,
+            // eduport-core schema editor
+            commands::schema::core_schema_get,
+            commands::schema::core_schema_get_type,
+            commands::schema::core_schema_add_property,
+            commands::schema::core_schema_patch_property,
+            commands::schema::core_schema_delete_property,
+            commands::schema::core_schema_reorder_properties,
+            commands::schema::core_schema_apply_tier_template,
+            commands::schema::core_schema_purge_orphans,
+            // eduport-core saved views
+            commands::view::core_view_get_all,
+            commands::view::core_view_get_for_type,
+            commands::view::core_view_create,
+            commands::view::core_view_update,
+            commands::view::core_view_delete,
+            commands::view::core_view_reorder,
+            // eduport-core search + property aggregations
+            commands::search::core_search,
+            commands::properties::core_property_value_counts,
+            commands::properties::core_filter_entities_by_properties,
+            // eduport-core status + counts + tags + parse errors
+            commands::status::core_get_status,
+            commands::status::core_list_parse_errors,
+            commands::status::core_get_counts,
+            commands::status::core_get_tags,
+            // eduport-core settings (reboots the state on put)
+            commands::settings::core_settings_get,
+            commands::settings::core_settings_put,
+            // eduport-core EML parsing
+            commands::eml::core_parse_eml,
+            // eduport-core trash management
+            commands::trash::core_trash_list,
+            commands::trash::core_trash_restore,
+            commands::trash::core_trash_delete,
+            commands::trash::core_trash_empty,
+            // eduport-core checkbox toggle for tasks
+            commands::checkbox::core_checkbox_toggle,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -266,6 +364,9 @@ pub fn run() {
                         sidecar::kill_sidecar(handle);
                     }
                 }
+                // Stop the eduport-core watcher so its threads
+                // shut down cleanly.
+                core_state::shutdown(&window.app_handle().state::<EduportStateHandle>());
             }
         })
         .run(tauri::generate_context!())
