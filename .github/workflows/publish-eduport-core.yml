@@ -1,0 +1,76 @@
+name: Publish eduport-core to crates.io
+
+# Triggered by an `eduport-core-v*` tag (e.g. eduport-core-v0.1.1).
+# Distinct namespace from the desktop app's `desktop-v*` tags so
+# publishing the library doesn't accidentally cut a desktop release.
+#
+# Gated behind the `production` GitHub Environment for one-click
+# approval before `cargo publish` runs — same pattern as vaultdb's
+# publish workflow.
+#
+# Pre-requisite: vaultdb-core v1.0.0 must already be on crates.io
+# (eduport-core's dep resolves to it). If you're publishing both
+# at the same release, push the vaultdb tag first and let it
+# settle before pushing the eduport-core tag.
+
+on:
+  push:
+    tags:
+      - 'eduport-core-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. eduport-core-v0.1.1)'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: cargo publish eduport-core
+    runs-on: ubuntu-22.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # eduport-core uses rusqlite/bundled which compiles SQLite
+      # from source — needs a C toolchain. ubuntu-22.04 ships one
+      # by default; this step is a no-op on the standard runner
+      # but documented so future-you knows the dependency.
+      - name: Verify C toolchain
+        run: cc --version
+
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        # eduport-core has the dual `path + version` dep on
+        # vaultdb-core. cargo strips the path at upload time, so
+        # crates.io sees only `vaultdb-core = "1.0.0"` — that's
+        # the version that has to already exist on the registry.
+        run: cargo publish -p eduport-core
+
+  github-release:
+    name: github release
+    needs: publish
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          draft: true
+          prerelease: false

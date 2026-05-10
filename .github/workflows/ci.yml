@@ -1,0 +1,63 @@
+name: CI
+
+# Fast, cross-cutting CI that doesn't build a whole Tauri bundle.
+# Three jobs in parallel: Rust workspace tests + clippy, frontend
+# type-check + vitest, eduport-core publish dry-run.
+#
+# desktop-build.yml runs the heavy Tauri build on the same triggers;
+# this workflow exists so a manifest typo or a frontend type error
+# fails fast (~3 min) rather than waiting on a 15-min Tauri build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: cargo test + clippy + fmt
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      # eduport-core depends on rusqlite/bundled, which compiles
+      # SQLite from source. The first run is slow (~2 min); the
+      # rust-cache action speeds subsequent runs to seconds.
+      - run: cargo test -p eduport-core --all-features
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
+
+  publish-dry-run:
+    name: eduport-core publish dry-run
+    runs-on: ubuntu-22.04
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `cargo package` (not --dry-run) because eduport-core's
+      # vaultdb-core dep resolves through `path` locally — the
+      # registry-based dry-run would fail until vaultdb-core is
+      # actually published. `cargo package` validates the manifest
+      # shape without the registry lookup.
+      - run: cargo package --allow-dirty -p eduport-core
+
+  frontend:
+    name: svelte-check + vitest
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run check
+      - run: npm --prefix frontend exec vitest run

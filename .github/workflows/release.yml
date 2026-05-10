@@ -1,8 +1,14 @@
-name: Release
+name: Desktop release
 
 # Triggers:
-#   • git tag matching v* → automatic release build
+#   • git tag matching `desktop-v*` → automatic release build
 #   • workflow_dispatch → manual run (e.g., re-trigger after a CI flake)
+#
+# Tag namespace note: this repo uses two tag schemes:
+#   - `desktop-v*` for the Tauri desktop app (this workflow)
+#   - `eduport-core-v*` for the eduport-core crate (publish-eduport-core.yml)
+# They don't collide; the symmetric prefix scheme makes future-you's
+# job easier when reading `git tag --list`.
 #
 # Output: a draft GitHub Release with installers for the three desktop OSes
 # attached. Draft (not published) so you can sanity-check the assets before
@@ -11,11 +17,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'desktop-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build a release for (e.g., v0.1.0)'
+        description: 'Existing tag to build a release for (e.g., desktop-v0.1.0)'
         required: true
 
 permissions:
@@ -43,15 +49,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -67,28 +67,33 @@ jobs:
         run: npm ci --prefix frontend
 
       - name: Build desktop package
-        run: python scripts/build_desktop.py
+        run: python3 scripts/build_desktop.py
 
-      # Each OS produces different installer types; collect what's there into
-      # one folder. `cp ... || true` so a missing format (e.g., AppImage on a
-      # CI runner that can't FUSE-mount) is a warning, not a failure.
+      # Tauri's bundle output sits under crates/eduport-tauri/target/
+      # because that's where the Cargo target lives once the workspace
+      # was reorganised in rewrite phase 4. Each OS produces different
+      # installer types; collect what's there into one folder.
+      # `cp ... || true` so a missing format (e.g., AppImage on a CI
+      # runner that can't FUSE-mount) is a warning, not a failure.
       - name: Stage release assets (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir -p release-assets
-          cp target/release/bundle/deb/*.deb release-assets/ 2>/dev/null || true
-          cp target/release/bundle/rpm/*.rpm release-assets/ 2>/dev/null || true
-          cp target/release/bundle/appimage/*.AppImage release-assets/ 2>/dev/null || true
+          BUNDLE=crates/eduport-tauri/target/release/bundle
+          cp $BUNDLE/deb/*.deb release-assets/ 2>/dev/null || true
+          cp $BUNDLE/rpm/*.rpm release-assets/ 2>/dev/null || true
+          cp $BUNDLE/appimage/*.AppImage release-assets/ 2>/dev/null || true
           ls -la release-assets/
 
       - name: Stage release assets (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p release-assets
-          cp target/release/bundle/dmg/*.dmg release-assets/ 2>/dev/null || true
+          BUNDLE=crates/eduport-tauri/target/release/bundle
+          cp $BUNDLE/dmg/*.dmg release-assets/ 2>/dev/null || true
           # zip the .app bundle so it survives transit through GitHub's CDN
-          if [ -d target/release/bundle/macos ]; then
-            (cd target/release/bundle/macos && zip -r ../../../../release-assets/Eduport-macos.app.zip ./*.app)
+          if [ -d $BUNDLE/macos ]; then
+            (cd $BUNDLE/macos && zip -r "$GITHUB_WORKSPACE/release-assets/Eduport-macos.app.zip" ./*.app)
           fi
           ls -la release-assets/
 
@@ -97,8 +102,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          cp target/release/bundle/msi/*.msi release-assets/ 2>/dev/null || true
-          cp target/release/bundle/nsis/*-setup.exe release-assets/ 2>/dev/null || true
+          BUNDLE=crates/eduport-tauri/target/release/bundle
+          cp $BUNDLE/msi/*.msi release-assets/ 2>/dev/null || true
+          cp $BUNDLE/nsis/*-setup.exe release-assets/ 2>/dev/null || true
           ls -la release-assets/
 
       - name: Attach to release
