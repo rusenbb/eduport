@@ -4,10 +4,10 @@
   "version": "0.1.1",
   "identifier": "io.github.rusenbb.eduport",
   "build": {
-    "frontendDist": "../frontend/build",
+    "frontendDist": "../../frontend/build",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix frontend run dev",
-    "beforeBuildCommand": "node ../scripts/build_tauri_prereqs.mjs"
+    "beforeDevCommand": "npm --prefix ../../frontend run dev",
+    "beforeBuildCommand": "node ../../scripts/build_tauri_prereqs.mjs"
   },
   "app": {
     "windows": [

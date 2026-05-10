@@ -1,0 +1,19 @@
+[package]
+name = "eduport-core"
+description = "Eduport's domain layer — typed schema, FTS5, watcher, EML import — over vaultdb-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vaultdb-core = { path = "../../../../researches/vaultdb/crates/vaultdb-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

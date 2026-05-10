@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md)
 
-<img src="src-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
+<img src="crates/eduport-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
 
 A single-user desktop app for tracking university applications, programs, people, labs, and the documents and emails that connect them. Storage is plain Markdown + YAML on disk — sync-friendly via Dropbox / iCloud / Syncthing, and editable directly in Obsidian alongside the app.
 
@@ -59,11 +59,14 @@ A single-user desktop app for tracking university applications, programs, people
 ## Project structure
 
 ```
-docs/                design spec, packaging notes, implementation plans
-frontend/            SvelteKit app — UI + API client
-scripts/             build helpers (sidecar bundling, Tauri prereqs)
-sidecar/             Python (FastAPI) — uv-managed project
-src-tauri/           Rust shell (Tauri 2) — entry point + native bridges
+Cargo.toml                     workspace manifest
+crates/
+  eduport-core/                Rust library — domain layer, schema, FTS5, watcher (Phase 4+)
+  eduport-tauri/               Rust shell (Tauri 2) — entry point + native bridges
+docs/                          design spec, packaging notes, implementation plans
+frontend/                      SvelteKit app — UI + API client
+scripts/                       build helpers (sidecar bundling, Tauri prereqs)
+sidecar/                       Python (FastAPI) — to be retired by Phase 11 of the rewrite
 ```
 
 ## Prerequisites
@@ -108,7 +111,7 @@ The fastest path to a real installable app is the packaging script — it bundle
 python3 scripts/build_desktop.py
 ```
 
-On Linux this produces `.deb` and `.rpm` under `src-tauri/target/release/bundle/`. Install with `sudo apt install ./src-tauri/target/release/bundle/deb/eduport_*.deb` (or your distro's equivalent). See [docs/packaging.md](docs/packaging.md) for advanced bundle targets and CI notes.
+On Linux this produces `.deb` and `.rpm` under `target/release/bundle/`. Install with `sudo apt install ./target/release/bundle/deb/eduport_*.deb` (or your distro's equivalent). See [docs/packaging.md](docs/packaging.md) for advanced bundle targets and CI notes.
 
 ## Tests + checks
 
@@ -131,4 +134,4 @@ npm run check
 
 ## License
 
-MIT (per `src-tauri/Cargo.toml`). A standalone `LICENSE` file is on the to-do list.
+MIT (per the workspace `Cargo.toml`). A standalone `LICENSE` file is on the to-do list.

@@ -10,9 +10,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "sidecar"
-BIN_DIR = REPO / "src-tauri" / "binaries"
-PYINSTALLER_WORK = REPO / "src-tauri" / "target" / "pyinstaller-build"
-PYINSTALLER_SPEC = REPO / "src-tauri" / "target" / "pyinstaller-spec"
+# The repo became a Cargo workspace in Phase 4 of the rewrite; the
+# Tauri crate now lives at crates/eduport-tauri/ and the workspace
+# target/ is at the repo root.
+BIN_DIR = REPO / "crates" / "eduport-tauri" / "binaries"
+PYINSTALLER_WORK = REPO / "target" / "pyinstaller-build"
+PYINSTALLER_SPEC = REPO / "target" / "pyinstaller-spec"
 
 
 def run(command: list[str], cwd: Path = REPO) -> None:
