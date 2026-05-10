@@ -149,7 +149,10 @@
 			onCancel?.();
 			return;
 		}
-		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+		if (
+			(event.metaKey || event.ctrlKey) &&
+			(event.key === 'Enter' || event.key.toLowerCase() === 's')
+		) {
 			event.preventDefault();
 			if (!saving) void save();
 		}
