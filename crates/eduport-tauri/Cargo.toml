@@ -39,3 +39,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
+# Used for the `BootError` and per-command error enums under
+# core_state / commands. Same crate eduport-core uses, so consumers
+# see one error idiom across the workspace.
+thiserror = "2"

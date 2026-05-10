@@ -1,3 +1,4 @@
+mod core_state;
 mod reveal;
 mod sidecar;
 
