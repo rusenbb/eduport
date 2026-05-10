@@ -29,6 +29,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod eml;
 pub mod entity;
 pub mod entity_type;
 pub mod schema;

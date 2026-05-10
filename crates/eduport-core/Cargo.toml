@@ -18,6 +18,8 @@ tracing = "0.1"
 regex = "1"
 url = { version = "2", features = ["serde"] }
 rand = "0.8"
+mailparse = "0.16"
+html2text = "0.15"
 
 [dev-dependencies]
 tempfile = "3"

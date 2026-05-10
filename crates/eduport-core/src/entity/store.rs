@@ -185,6 +185,203 @@ impl EntityStore {
             .join(self.folder_for(kind))
             .join(format!("{}.md", name))
     }
+
+    // ── Write side ──────────────────────────────────────────────────
+
+    /// Create a new entity file at `<folder>/<filename_stem>.md`.
+    /// `entity` provides the frontmatter; `body` is the free-form
+    /// notes section after the closing `---`. Errors if a file
+    /// already exists at the target path — overwrite via [`Self::save`]
+    /// instead.
+    pub fn create(
+        &self,
+        kind: EntityType,
+        filename_stem: &str,
+        entity: &Entity,
+        body: &str,
+    ) -> Result<PathBuf, EntityStoreError> {
+        if entity.entity_type() != kind {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "kind/entity mismatch: store kind = {}, entity kind = {}",
+                kind,
+                entity.entity_type()
+            ))));
+        }
+        let path = self.path_for(kind, filename_stem);
+        if path.exists() {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "entity file already exists: {}",
+                path.display()
+            ))));
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
+        }
+        let content = render_entity_file(entity, body)?;
+        // Use vaultdb-core's atomic write so partial-write-on-crash is
+        // impossible — same primitive every vaultdb mutation uses.
+        vaultdb_core::writer::atomic_write(&path, &content)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
+        Ok(path)
+    }
+
+    /// Overwrite an existing entity file in place. The file's body is
+    /// preserved (we only replace the frontmatter); call [`Self::save_with_body`]
+    /// to set both at once. Errors if the file doesn't exist — create
+    /// via [`Self::create`] instead.
+    pub fn save(
+        &self,
+        kind: EntityType,
+        filename_stem: &str,
+        entity: &Entity,
+    ) -> Result<PathBuf, EntityStoreError> {
+        if entity.entity_type() != kind {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "kind/entity mismatch: store kind = {}, entity kind = {}",
+                kind,
+                entity.entity_type()
+            ))));
+        }
+        let path = self.path_for(kind, filename_stem);
+        if !path.exists() {
+            return Err(EntityStoreError::NotFound {
+                kind,
+                name: filename_stem.into(),
+            });
+        }
+        // Read existing file to preserve the body.
+        let existing = std::fs::read_to_string(&path)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
+        let body = extract_body(&existing);
+        let content = render_entity_file(entity, &body)?;
+        vaultdb_core::writer::atomic_write(&path, &content)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
+        Ok(path)
+    }
+
+    /// Same as [`Self::save`] but takes the body explicitly. Use this
+    /// when the body is changing alongside the frontmatter.
+    pub fn save_with_body(
+        &self,
+        kind: EntityType,
+        filename_stem: &str,
+        entity: &Entity,
+        body: &str,
+    ) -> Result<PathBuf, EntityStoreError> {
+        if entity.entity_type() != kind {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "kind/entity mismatch: store kind = {}, entity kind = {}",
+                kind,
+                entity.entity_type()
+            ))));
+        }
+        let path = self.path_for(kind, filename_stem);
+        if !path.exists() {
+            return Err(EntityStoreError::NotFound {
+                kind,
+                name: filename_stem.into(),
+            });
+        }
+        let content = render_entity_file(entity, body)?;
+        vaultdb_core::writer::atomic_write(&path, &content)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
+        Ok(path)
+    }
+
+    /// Delete an entity. By default moves to `<vault>/.trash/`
+    /// (collision-safe). Pass `permanent: true` to remove outright.
+    /// Uses vaultdb-core's `DeleteBuilder` so it inherits the vault
+    /// lock + atomic-rename + journal-recovery infrastructure.
+    pub fn delete(
+        &self,
+        kind: EntityType,
+        filename_stem: &str,
+        permanent: bool,
+    ) -> Result<(), EntityStoreError> {
+        let folder = self.folder_for(kind).to_string();
+        // Filter on virtual `_name` field so we target exactly this file.
+        let filter = vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Equals {
+            field: "_name".into(),
+            value: vaultdb_core::Value::String(filename_stem.into()),
+        });
+        let builder = vaultdb_core::DeleteBuilder::new(folder, filter).permanent(permanent);
+        let report = builder
+            .execute(&self.vault)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Vaultdb(e)))?;
+        if report.changes.is_empty() {
+            return Err(EntityStoreError::NotFound {
+                kind,
+                name: filename_stem.into(),
+            });
+        }
+        if !report.errors.is_empty() {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "delete reported {} error(s); first: {}",
+                report.errors.len(),
+                report.errors[0].message
+            ))));
+        }
+        Ok(())
+    }
+
+    /// Rename the file backing an entity, rewriting every wikilink
+    /// across the vault that points at the old name. Uses vaultdb-
+    /// core's `RenameBuilder` so the operation is journal-protected
+    /// (a crash during the rewrite leaves a journal that the next
+    /// mutation replays).
+    ///
+    /// `from` and `to` are filename stems (no `.md`).
+    pub fn rename_file(
+        &self,
+        kind: EntityType,
+        from: &str,
+        to: &str,
+    ) -> Result<(), EntityStoreError> {
+        let folder = self.folder_for(kind).to_string();
+        let report = vaultdb_core::RenameBuilder::new(folder, from, to)
+            .execute(&self.vault)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Vaultdb(e)))?;
+        if !report.errors.is_empty() {
+            return Err(EntityStoreError::Eduport(EduportError::Schema(format!(
+                "rename reported {} error(s); first: {}",
+                report.errors.len(),
+                report.errors[0].message
+            ))));
+        }
+        Ok(())
+    }
+}
+
+/// Render an entity to its on-disk file contents:
+/// `---\n<frontmatter yaml>---\n<body>\n`.
+fn render_entity_file(entity: &Entity, body: &str) -> Result<String, EntityStoreError> {
+    let yaml = entity.to_yaml().map_err(|reason| {
+        EntityStoreError::Eduport(EduportError::Schema(format!(
+            "render entity yaml: {}",
+            reason
+        )))
+    })?;
+    // `serde_yaml::to_string` ends with a trailing newline; we want a
+    // clean `---\n<yaml>---\n<body>\n` shape. Trim and re-add.
+    let yaml_trimmed = yaml.trim_end();
+    let body_trimmed = body.trim_end_matches('\n');
+    Ok(if body_trimmed.is_empty() {
+        format!("---\n{}\n---\n", yaml_trimmed)
+    } else {
+        format!("---\n{}\n---\n{}\n", yaml_trimmed, body_trimmed)
+    })
+}
+
+/// Extract the body (everything after the closing `---`) of an
+/// existing entity file. Returns the empty string if no closing
+/// delimiter is found — defensive for hand-edited files.
+fn extract_body(content: &str) -> String {
+    if let Some((_, body_start)) = vaultdb_core::frontmatter::extract_frontmatter(content) {
+        content[body_start..].to_string()
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(test)]
@@ -310,5 +507,211 @@ Notes.
             }
             _ => panic!("expected Application"),
         }
+    }
+
+    fn make_university(name: &str) -> Entity {
+        Entity::University(crate::entity::types::University {
+            name: name.into(),
+            tags: vec!["eduport-type/university".into()],
+            country: "USA".into(),
+            city: None,
+            website: None,
+            links: vec![],
+            emails: vec![],
+            custom: std::collections::BTreeMap::new(),
+        })
+    }
+
+    #[test]
+    fn create_writes_a_new_file_atomically() {
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let entity = make_university("Stanford");
+        let path = store
+            .create(EntityType::University, "stanford", &entity, "Body notes.")
+            .unwrap();
+        assert_eq!(path, dir.path().join("universities/stanford.md"));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.starts_with("---\n"));
+        assert!(content.contains("name: Stanford"));
+        assert!(content.contains("country: USA"));
+        assert!(content.contains("Body notes."));
+    }
+
+    #[test]
+    fn create_errors_when_file_already_exists() {
+        let (dir, vault) = setup_vault();
+        fs::write(
+            dir.path().join("universities/x.md"),
+            "---\nname: x\ntags:\n  - eduport-type/university\ncountry: USA\n---\n",
+        )
+        .unwrap();
+        let store = EntityStore::new(vault);
+        let entity = make_university("X");
+        let result = store.create(EntityType::University, "x", &entity, "");
+        assert!(matches!(
+            result,
+            Err(EntityStoreError::Eduport(EduportError::Schema(_)))
+        ));
+    }
+
+    #[test]
+    fn create_rejects_kind_entity_mismatch() {
+        let (_dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let university = make_university("X");
+        // Try to create a "Note" using a University entity → mismatch.
+        let result = store.create(EntityType::Note, "x", &university, "");
+        assert!(matches!(
+            result,
+            Err(EntityStoreError::Eduport(EduportError::Schema(_)))
+        ));
+    }
+
+    #[test]
+    fn save_overwrites_frontmatter_preserving_body() {
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let mut entity = make_university("Stanford");
+        store
+            .create(
+                EntityType::University,
+                "stanford",
+                &entity,
+                "Original body line.\n",
+            )
+            .unwrap();
+
+        // Modify the entity and save. Body should be preserved.
+        if let Entity::University(u) = &mut entity {
+            u.city = Some("Stanford, CA".into());
+        }
+        store
+            .save(EntityType::University, "stanford", &entity)
+            .unwrap();
+
+        let content = fs::read_to_string(dir.path().join("universities/stanford.md")).unwrap();
+        assert!(content.contains("city: Stanford, CA"));
+        assert!(content.contains("Original body line."));
+    }
+
+    #[test]
+    fn save_with_body_replaces_both_frontmatter_and_body() {
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let entity = make_university("Stanford");
+        store
+            .create(
+                EntityType::University,
+                "stanford",
+                &entity,
+                "Original body.",
+            )
+            .unwrap();
+        store
+            .save_with_body(
+                EntityType::University,
+                "stanford",
+                &entity,
+                "New body content.",
+            )
+            .unwrap();
+        let content = fs::read_to_string(dir.path().join("universities/stanford.md")).unwrap();
+        assert!(content.contains("New body content."));
+        assert!(!content.contains("Original body."));
+    }
+
+    #[test]
+    fn save_errors_when_file_missing() {
+        let (_dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let entity = make_university("Stanford");
+        let result = store.save(EntityType::University, "ghost", &entity);
+        assert!(matches!(result, Err(EntityStoreError::NotFound { .. })));
+    }
+
+    #[test]
+    fn delete_moves_file_to_trash_by_default() {
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let entity = make_university("Stanford");
+        store
+            .create(EntityType::University, "stanford", &entity, "")
+            .unwrap();
+        store
+            .delete(EntityType::University, "stanford", false)
+            .unwrap();
+
+        assert!(!dir.path().join("universities/stanford.md").exists());
+        assert!(dir.path().join(".trash/stanford.md").exists());
+    }
+
+    #[test]
+    fn delete_permanent_removes_file_outright() {
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let entity = make_university("Stanford");
+        store
+            .create(EntityType::University, "stanford", &entity, "")
+            .unwrap();
+        store
+            .delete(EntityType::University, "stanford", true)
+            .unwrap();
+        assert!(!dir.path().join("universities/stanford.md").exists());
+        assert!(!dir.path().join(".trash/stanford.md").exists());
+    }
+
+    #[test]
+    fn delete_errors_when_file_missing() {
+        let (_dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let result = store.delete(EntityType::University, "ghost", false);
+        assert!(matches!(result, Err(EntityStoreError::NotFound { .. })));
+    }
+
+    #[test]
+    fn rename_file_renames_and_rewrites_backlinks() {
+        // The killer feature: file rename + cross-vault wikilink rewrite,
+        // protected by vaultdb-core's journal so a crash mid-rewrite is
+        // recoverable.
+        let (dir, vault) = setup_vault();
+        let store = EntityStore::new(vault);
+        let stanford = make_university("Stanford");
+        store
+            .create(EntityType::University, "stanford", &stanford, "")
+            .unwrap();
+        // A Lab that references the Stanford university by wikilink.
+        let lab = Entity::Lab(crate::entity::types::Lab {
+            name: "AI Lab".into(),
+            tags: vec!["eduport-type/lab".into()],
+            focus: None,
+            website: None,
+            university: Some(crate::wikilink::WikiLink::new("stanford")),
+            links: vec![],
+            emails: vec![],
+            custom: std::collections::BTreeMap::new(),
+        });
+        store.create(EntityType::Lab, "ai-lab", &lab, "").unwrap();
+
+        // Rename stanford → stanford-university; the Lab's wikilink
+        // should follow.
+        store
+            .rename_file(EntityType::University, "stanford", "stanford-university")
+            .unwrap();
+
+        assert!(!dir.path().join("universities/stanford.md").exists());
+        assert!(
+            dir.path()
+                .join("universities/stanford-university.md")
+                .exists()
+        );
+
+        let lab_content = fs::read_to_string(dir.path().join("labs/ai-lab.md")).unwrap();
+        assert!(
+            lab_content.contains("[[stanford-university]]"),
+            "expected backlink rewritten, got: {}",
+            lab_content
+        );
+        assert!(!lab_content.contains("[[stanford]]"));
     }
 }
