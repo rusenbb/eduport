@@ -29,13 +29,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod entity;
 pub mod entity_type;
 pub mod schema;
 pub mod settings;
+pub mod slug;
 pub mod view;
+pub mod wikilink;
 
 pub use entity_type::EntityType;
 pub use settings::{Settings, Theme, load_settings, save_settings};
+pub use slug::{generate_id, generate_slug};
+pub use wikilink::WikiLink;
 
 /// Crate-level error type. Wraps vaultdb-core errors plus eduport-
 /// specific failure modes (schema validation, FTS5 reconcile, etc.).
