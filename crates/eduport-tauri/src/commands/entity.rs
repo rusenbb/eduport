@@ -1,0 +1,423 @@
+//! Entity CRUD commands.
+//!
+//! Mirrors the Python sidecar's `/entities/*` endpoints. Each handler
+//! is a thin shim over `EntityStore` + the FTS5 index — the heavy
+//! lifting lives in `eduport-core`.
+//!
+//! ## Notify-self-write integration
+//!
+//! Every mutating handler (`create`, `update`, `delete`) calls
+//! `Watcher::note_self_write` before the on-disk write, so the
+//! watcher's debouncer doesn't bounce the file back through the
+//! parse path. Without this, `create_entity` would round-trip
+//! through the watcher and re-index a file we already have in
+//! memory.
+
+use std::path::Path;
+use std::sync::Arc;
+
+use eduport_core::entity::Entity;
+use eduport_core::index::writer::{
+    delete_entity as index_delete, upsert_entity as index_upsert,
+};
+use eduport_core::index::{EntitySummary, list_entities};
+use eduport_core::EntityType;
+use serde::Serialize;
+use serde_json::Value as JsonValue;
+use tauri::State;
+
+use super::{require_state, CommandError};
+use crate::core_state::{EduportState, EduportStateHandle};
+
+/// One row in the entity-list view. Field-for-field compatible with
+/// the frontend's `EntityListItem`.
+#[derive(Debug, Serialize)]
+pub struct EntityListItem {
+    pub file_id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    pub name: String,
+    pub path: String,
+    pub mtime_ns: i64,
+}
+
+impl From<EntitySummary> for EntityListItem {
+    fn from(s: EntitySummary) -> Self {
+        Self {
+            file_id: s.file_id,
+            entity_type: s.entity_type,
+            name: s.name,
+            path: s.path,
+            mtime_ns: s.mtime_ns,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct Backlink {
+    pub src_file_id: String,
+    pub field: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub entity_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EntityDetail {
+    pub file_id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    pub path: String,
+    /// Full frontmatter as a serde_json `Value` so the frontend gets
+    /// the typed entity with its custom-property tail. Same shape
+    /// the sidecar's GET /entities/{type}/{file_id} returned.
+    pub entity: JsonValue,
+    pub body: String,
+    pub backlinks: Vec<Backlink>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateResult {
+    pub file_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResolveResult {
+    pub file_id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    pub name: String,
+}
+
+/// List entities of `entity_type`, optionally filtered by tags
+/// (intersection semantics). Reads from the FTS5 index — no disk
+/// walk.
+#[tauri::command]
+pub fn core_entity_list(
+    state: State<'_, EduportStateHandle>,
+    entity_type: EntityType,
+    tags: Option<Vec<String>>,
+) -> Result<Vec<EntityListItem>, CommandError> {
+    let st = require_state(&state)?;
+    let tags: Vec<&str> = tags
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let index = st.index.lock().expect("index mutex poisoned");
+    let rows = list_entities(index.conn(), Some(entity_type), &tags)?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
+/// Fetch a single entity by `(entity_type, file_id)`. Reads the
+/// canonical file via `EntityStore::find_by_name` (same parser as
+/// list / reconcile), assembles backlinks from vaultdb's link
+/// graph, and emits the full detail payload.
+#[tauri::command]
+pub fn core_entity_get(
+    state: State<'_, EduportStateHandle>,
+    entity_type: EntityType,
+    file_id: String,
+) -> Result<EntityDetail, CommandError> {
+    let st = require_state(&state)?;
+    let entity_opt = st
+        .entity_store
+        .find_by_name(entity_type, &file_id)
+        .map_err(CommandError::from)?;
+    let entity = entity_opt.ok_or_else(|| {
+        CommandError::not_found(format!(
+            "no entity {entity_type}/{file_id}"
+        ))
+    })?;
+    let path = st.entity_store.path_for(entity_type, &file_id);
+    let body = read_body(&path).unwrap_or_default();
+    let entity_name = entity.name().to_string();
+    let entity_json = entity_to_json(&entity)?;
+    // LinkGraph keys by entity name, not file_id — see
+    // collect_backlinks doc comment for why.
+    let backlinks = collect_backlinks(&st, &entity_name);
+    Ok(EntityDetail {
+        file_id,
+        entity_type: entity_type.to_string(),
+        path: path.to_string_lossy().into_owned(),
+        entity: entity_json,
+        body,
+        backlinks,
+    })
+}
+
+/// Resolve a wikilink target (e.g. `Stanford`) to a single entity.
+/// Errors if the target is ambiguous (matches more than one) or
+/// missing. Mirrors the sidecar's `/entities/resolve/{target}`.
+#[tauri::command]
+pub fn core_entity_resolve(
+    state: State<'_, EduportStateHandle>,
+    target: String,
+) -> Result<ResolveResult, CommandError> {
+    let st = require_state(&state)?;
+    let index = st.index.lock().expect("index mutex poisoned");
+    // Match against either the file_id (filename stem) or the entity
+    // name. The Python sidecar matched both via its parsers/wikilinks
+    // resolver — here we go through the index, which has both.
+    let mut matches: Vec<(String, String, String)> = Vec::new();
+    let mut stmt = index
+        .conn()
+        .prepare(
+            "SELECT file_id, type, name FROM entities \
+             WHERE file_id = ?1 OR name = ?1",
+        )
+        .map_err(eduport_core::index::IndexError::from)?;
+    let mut rows = stmt
+        .query([&target])
+        .map_err(eduport_core::index::IndexError::from)?;
+    while let Some(row) = rows.next().map_err(eduport_core::index::IndexError::from)? {
+        matches.push((
+            row.get(0).map_err(eduport_core::index::IndexError::from)?,
+            row.get(1).map_err(eduport_core::index::IndexError::from)?,
+            row.get(2).map_err(eduport_core::index::IndexError::from)?,
+        ));
+    }
+    drop(rows);
+    drop(stmt);
+
+    match matches.len() {
+        0 => Err(CommandError::not_found(format!(
+            "no entity matching wikilink target {target:?}"
+        ))),
+        1 => {
+            let (file_id, entity_type, name) = matches.remove(0);
+            Ok(ResolveResult {
+                file_id,
+                entity_type,
+                name,
+            })
+        }
+        n => Err(CommandError::conflict(format!(
+            "wikilink target {target:?} is ambiguous: {n} matches"
+        ))),
+    }
+}
+
+/// Create a new entity. The `frontmatter` is an arbitrary JSON
+/// object; we serialise it through serde_yaml to match the on-disk
+/// YAML and parse it as an `Entity`. The file's body is whatever
+/// `body` carries.
+#[tauri::command]
+pub fn core_entity_create(
+    state: State<'_, EduportStateHandle>,
+    entity_type: EntityType,
+    frontmatter: JsonValue,
+    body: Option<String>,
+) -> Result<CreateResult, CommandError> {
+    let st = require_state(&state)?;
+    let body = body.unwrap_or_default();
+    let entity = json_to_entity(frontmatter, entity_type)?;
+    let file_id = generate_unique_file_id(&st, entity_type, entity.name())?;
+    let path = st.entity_store.path_for(entity_type, &file_id);
+
+    note_self_write(&st, &path);
+    st.entity_store
+        .create(entity_type, &file_id, &entity, &body)?;
+
+    // Update the index synchronously — the watcher's debounce
+    // window means the index would lag the user-visible action by
+    // up to 200 ms otherwise.
+    upsert_into_index(&st, &file_id, &path, &entity, &body)?;
+
+    Ok(CreateResult { file_id })
+}
+
+/// Update an existing entity (PATCH semantics — the full new
+/// frontmatter and body replace the previous ones).
+#[tauri::command]
+pub fn core_entity_update(
+    state: State<'_, EduportStateHandle>,
+    entity_type: EntityType,
+    file_id: String,
+    frontmatter: JsonValue,
+    body: Option<String>,
+) -> Result<CreateResult, CommandError> {
+    let st = require_state(&state)?;
+    let body = body.unwrap_or_default();
+    let entity = json_to_entity(frontmatter, entity_type)?;
+    let path = st.entity_store.path_for(entity_type, &file_id);
+
+    note_self_write(&st, &path);
+    st.entity_store
+        .save_with_body(entity_type, &file_id, &entity, &body)?;
+    upsert_into_index(&st, &file_id, &path, &entity, &body)?;
+
+    Ok(CreateResult { file_id })
+}
+
+/// Delete an entity. Routes through `EntityStore::delete(.., false)`
+/// which moves the file to vaultdb's `.trash/` rather than removing
+/// it outright (collision-safe). The trash commands (Phase 9.5)
+/// expose list/restore/empty.
+#[tauri::command]
+pub fn core_entity_delete(
+    state: State<'_, EduportStateHandle>,
+    entity_type: EntityType,
+    file_id: String,
+) -> Result<(), CommandError> {
+    let st = require_state(&state)?;
+    let path = st.entity_store.path_for(entity_type, &file_id);
+    note_self_write(&st, &path);
+    st.entity_store.delete(entity_type, &file_id, false)?;
+    let index = st.index.lock().expect("index mutex poisoned");
+    index_delete(index.conn(), &file_id)?;
+    Ok(())
+}
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+/// Convert an [`Entity`] back into a serde_json::Value so the
+/// frontend gets typed JSON. Goes through YAML → Value to share the
+/// canonical serializer with the on-disk format — round-trips with
+/// the file the user reads.
+fn entity_to_json(entity: &Entity) -> Result<JsonValue, CommandError> {
+    let yaml = entity
+        .to_yaml()
+        .map_err(|e| CommandError::internal(format!("entity serialise: {e}")))?;
+    let v: serde_yaml::Value = serde_yaml::from_str(&yaml)
+        .map_err(|e| CommandError::internal(format!("yaml→value: {e}")))?;
+    serde_json::to_value(v)
+        .map_err(|e| CommandError::internal(format!("value→json: {e}")))
+}
+
+fn json_to_entity(frontmatter: JsonValue, expected: EntityType) -> Result<Entity, CommandError> {
+    let yaml_value: serde_yaml::Value = serde_json::from_value(frontmatter)
+        .map_err(|e| CommandError::invalid(format!("invalid frontmatter shape: {e}")))?;
+    let yaml = serde_yaml::to_string(&yaml_value)
+        .map_err(|e| CommandError::internal(format!("frontmatter→yaml: {e}")))?;
+    let entity = Entity::from_yaml(&yaml).map_err(CommandError::invalid)?;
+    if entity.entity_type() != expected {
+        return Err(CommandError::invalid(format!(
+            "frontmatter declares {} but command targets {}",
+            entity.entity_type(),
+            expected
+        )));
+    }
+    Ok(entity)
+}
+
+/// Generate a fresh `file_id` for a new entity. Uses the same shape
+/// as `EntityStore`'s on-disk convention: slugify the name, append
+/// a 4-char ID, retry on collision (the retry happens inside
+/// `eduport_core::generate_id` via the supplied predicate).
+fn generate_unique_file_id(
+    state: &EduportState,
+    entity_type: EntityType,
+    name: &str,
+) -> Result<String, CommandError> {
+    let slug = eduport_core::generate_slug(name);
+    let id = eduport_core::generate_id(|candidate| {
+        let probe = if slug.is_empty() {
+            candidate.to_string()
+        } else {
+            format!("{slug}-{candidate}")
+        };
+        state.entity_store.path_for(entity_type, &probe).exists()
+    })
+    .ok_or_else(|| {
+        CommandError::conflict(
+            "could not generate a unique file_id; vault may be saturated",
+        )
+    })?;
+    Ok(if slug.is_empty() {
+        id
+    } else {
+        format!("{slug}-{id}")
+    })
+}
+
+fn note_self_write(state: &EduportState, path: &Path) {
+    if let Some(watcher) = state
+        .watcher
+        .lock()
+        .expect("watcher mutex poisoned")
+        .as_ref()
+    {
+        watcher.note_self_write(path);
+    }
+}
+
+fn upsert_into_index(
+    state: &EduportState,
+    file_id: &str,
+    path: &Path,
+    entity: &Entity,
+    body: &str,
+) -> Result<(), CommandError> {
+    let mtime_ns = path
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as i64)
+        .unwrap_or(0);
+    let schema = state.schema_store.current().ok();
+    let index = state.index.lock().expect("index mutex poisoned");
+    index_upsert(
+        index.conn(),
+        file_id,
+        path,
+        mtime_ns,
+        entity,
+        body,
+        schema.as_ref(),
+    )?;
+    Ok(())
+}
+
+fn read_body(path: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let trimmed = raw.strip_prefix("---\n")?;
+    let close = trimmed.find("\n---\n")?;
+    Some(trimmed[close + "\n---\n".len()..].to_string())
+}
+
+/// Collect backlinks for an entity from vaultdb's link graph.
+///
+/// Notes on the data shape:
+/// - vaultdb's `LinkGraph` keys by note *name* (e.g. "Stanford
+///   University"), not file_id. We pass `name` as the lookup key.
+/// - The graph doesn't preserve which frontmatter *field* a wikilink
+///   came from (the field column existed in the Python sidecar's
+///   `entity_links` table; we deliberately dropped that table in
+///   Phase 7 — see crate::index::schema). So `field` is left empty
+///   here. If a future surface needs field tracking we'll either
+///   teach `LinkGraph` to retain it, or maintain a parallel index
+///   for the field-aware backlink path.
+/// - Empty Vec when the graph reports nothing — never an error
+///   path, because a missing graph would have failed at boot.
+fn collect_backlinks(state: &Arc<EduportState>, name: &str) -> Vec<Backlink> {
+    let vault = state.entity_store.vault();
+    let graph = match vault.link_graph(eduport_core::GraphScope::All) {
+        Ok(g) => g,
+        Err(_) => return Vec::new(),
+    };
+    graph
+        .incoming_links(name)
+        .into_iter()
+        .map(|src_name| Backlink {
+            src_file_id: src_name.to_string(),
+            field: String::new(),
+            entity_type: lookup_kind_for_name(state, src_name),
+            name: Some(src_name.to_string()),
+        })
+        .collect()
+}
+
+fn lookup_kind_for_name(state: &EduportState, name: &str) -> Option<String> {
+    let index = state.index.lock().ok()?;
+    index
+        .conn()
+        .query_row(
+            "SELECT type FROM entities WHERE name = ?1 LIMIT 1",
+            [name],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+}
+

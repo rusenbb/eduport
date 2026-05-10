@@ -30,6 +30,9 @@ eduport-core = { path = "../eduport-core" }
 
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+# Used by command handlers to round-trip frontmatter through the
+# canonical YAML representation (matches what's on disk).
+serde_yaml = "0.9"
 log = "0.4"
 toml = "0.8"
 tauri = { version = "2.11.1", features = [] }
