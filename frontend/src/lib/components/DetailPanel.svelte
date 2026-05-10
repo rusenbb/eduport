@@ -3,6 +3,7 @@
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
 	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
+	import { toasts } from '$lib/stores/toasts';
 	import { cloneFileToFolder, openInObsidian, openPath, revealInFileManager, saveCopyAs } from '$lib/tauri';
 	import type { EntityDetail } from '$lib/types';
 	import { onMount } from 'svelte';
@@ -113,7 +114,7 @@
 		try {
 			await revealInFileManager(abs);
 		} catch (e) {
-			alert(`Reveal failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Reveal failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -124,7 +125,7 @@
 		try {
 			await revealInFileManager(path);
 		} catch (e) {
-			alert(`Reveal failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Reveal failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -135,7 +136,7 @@
 		try {
 			await cloneFileToFolder(path, entityFilename());
 		} catch (e) {
-			alert(`Clone failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Clone failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -150,7 +151,7 @@
 		try {
 			await openPath(abs);
 		} catch (e) {
-			alert(`Open failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Open failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -160,7 +161,7 @@
 		try {
 			await saveCopyAs(abs, filePath?.split('/').pop() ?? 'attachment');
 		} catch (e) {
-			alert(`Save copy failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Save copy failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -223,7 +224,7 @@
 			detail.entity = fresh.entity;
 			detail.value_warnings = fresh.value_warnings;
 		} catch (e) {
-			alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Save failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 

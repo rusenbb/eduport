@@ -5,6 +5,7 @@
 	import type { ApplicationStatus, EntityDetail, EntityListItem } from '$lib/types';
 	import { COLOR_CLASSES, type OptionColor, type Property } from '$lib/types/schema';
 	import PropertyValue from './properties/PropertyValue.svelte';
+	import { toasts } from '$lib/stores/toasts';
 
 	export interface KanbanColumn {
 		value: string;
@@ -113,7 +114,10 @@
 			await load();
 			onUpdated?.(fileId);
 		} catch (e) {
-			alert(`Failed to update ${groupKey}: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error(
+				`Failed to update ${groupKey}`,
+				e instanceof Error ? e.message : String(e)
+			);
 			await load();
 		}
 	}

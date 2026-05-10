@@ -12,6 +12,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { updateEntity } from '$lib/api/entities';
+	import { toasts } from '$lib/stores/toasts';
 	import { FIELD_DEFS, builtinKindToPropertyType, type FieldDef } from '$lib/entities/meta';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import type { Property, ValueWarning } from '$lib/types/schema';
@@ -145,7 +146,7 @@
 			await updateEntity(entityType, fileId, newFm, detail.body);
 			onUpdated?.(fileId);
 		} catch (e) {
-			alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Save failed', e instanceof Error ? e.message : String(e));
 		} finally {
 			editingCell = null;
 		}

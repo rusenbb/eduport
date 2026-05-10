@@ -9,12 +9,18 @@
 		items,
 		type,
 		selectedFileId,
-		details = {}
+		details = {},
+		onContextMenu,
+		filtersActive = false,
+		onClearFilters
 	}: {
 		items: EntityListItem[];
 		type: EntityType;
 		selectedFileId?: string;
 		details?: Record<string, EntityDetail | null>;
+		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
+		filtersActive?: boolean;
+		onClearFilters?: () => void;
 	} = $props();
 
 	function navigate(fileId: string) {
@@ -29,8 +35,20 @@
 {#if items.length === 0}
 	<div class="flex h-full items-center justify-center p-8 text-center">
 		<div>
-			<p class="text-[var(--color-muted)]">No {type}s yet.</p>
-			<p class="mt-1 text-xs text-[var(--color-muted)]">Use the + New button above to add one.</p>
+			{#if filtersActive}
+				<p class="text-[var(--color-muted)]">No {type}s match the current filters.</p>
+				{#if onClearFilters}
+					<button
+						class="mt-2 rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
+						onclick={onClearFilters}
+					>
+						Clear filters
+					</button>
+				{/if}
+			{:else}
+				<p class="text-[var(--color-muted)]">No {type}s yet.</p>
+				<p class="mt-1 text-xs text-[var(--color-muted)]">Use the + New button above (or press Ctrl/⌘+N).</p>
+			{/if}
 		</div>
 	</div>
 {:else}
@@ -42,6 +60,7 @@
 				selected={item.file_id === selectedFileId}
 				summary={summarizeItem(item, details[item.file_id])}
 				onclick={() => navigate(item.file_id)}
+				{onContextMenu}
 			/>
 		{/each}
 	</div>

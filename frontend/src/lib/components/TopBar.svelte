@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { status } from '$lib/stores/status';
+	import { formatShortcut } from '$lib/keyboard';
 
-	let { onSearch, newAction }: { onSearch?: () => void; newAction?: { label: string; onClick: () => void } } = $props();
+	let {
+		onSearch,
+		onHelp,
+		newAction
+	}: {
+		onSearch?: () => void;
+		onHelp?: () => void;
+		newAction?: { label: string; onClick: () => void };
+	} = $props();
 
-	// macOS uses ⌘; everyone else uses Ctrl. The layout's keydown handler
-	// already accepts either (metaKey || ctrlKey) — this only fixes the
-	// label shown in the search button.
-	const isMac =
-		typeof navigator !== 'undefined' &&
-		/Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
-	const kbdHint = isMac ? '⌘K' : 'Ctrl+K';
+	const searchHint = formatShortcut(['mod', 'K']);
+	const newHint = formatShortcut(['mod', 'N']);
 </script>
 
 <div class="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-2">
@@ -22,15 +26,28 @@
 			<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
 		</svg>
 		<span class="flex-1">Search across everything</span>
-		<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px]">{kbdHint}</kbd>
+		<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px]">{searchHint}</kbd>
 	</button>
 
 	{#if newAction}
 		<button
 			onclick={newAction.onClick}
-			class="rounded border border-blue-700 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+			class="flex items-center gap-1.5 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
+			title={`Shortcut: ${newHint}`}
 		>
 			+ {newAction.label}
+			<kbd class="rounded border border-[var(--color-accent)]/30 px-1 py-0.5 text-[9px] opacity-70">{newHint}</kbd>
+		</button>
+	{/if}
+
+	{#if onHelp}
+		<button
+			onclick={onHelp}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-2 py-1.5 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+			title="Keyboard shortcuts (?)"
+			aria-label="Keyboard shortcuts"
+		>
+			?
 		</button>
 	{/if}
 

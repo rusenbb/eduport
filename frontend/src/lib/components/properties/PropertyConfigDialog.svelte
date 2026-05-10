@@ -224,7 +224,16 @@
 			? targetTypes.filter((x) => x !== t)
 			: [...targetTypes, t];
 	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onCancel();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-6" role="dialog" aria-modal="true">
 	<div class="flex max-h-[90vh] w-[min(560px,92vw)] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl">

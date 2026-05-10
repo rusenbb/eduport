@@ -36,7 +36,16 @@
 			saving = false;
 		}
 	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onCancel?.();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 	<div class="flex h-[82vh] w-[820px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl">

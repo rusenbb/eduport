@@ -14,14 +14,17 @@
 	import { filters } from '$lib/stores/filters';
 	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
+	import { toasts } from '$lib/stores/toasts';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import { DEFAULT_PROPERTY_FILTERS, type PropertyFilters } from '$lib/types/schema';
 	import { TYPE_LABELS, builtinFilterableProperties } from '$lib/entities/meta';
-	import { confirmDestructive, isTauri } from '$lib/tauri';
+	import { confirmDestructive, isTauri, revealInFileManager } from '$lib/tauri';
+	import { isTypingTarget } from '$lib/keyboard';
 	import EntityBodyEditor from './EntityBodyEditor.svelte';
 	import DetailPanel from './DetailPanel.svelte';
 	import EntityForm from './EntityForm.svelte';
 	import EntityList from './EntityList.svelte';
+	import EntityListSkeleton from './EntityListSkeleton.svelte';
 	import EmailGroupedList from './EmailGroupedList.svelte';
 	import GroupedList from './GroupedList.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
@@ -51,6 +54,7 @@
 	let editingForm = $state(false);
 	let editingBody = $state(false);
 	let focusMode = $state(false);
+	let saveDialogOpen = $state(false);
 	let propertyFilters: PropertyFilters = $state(parseFilterParams(page.url.searchParams));
 
 	function syncFiltersToUrl(next: PropertyFilters) {
@@ -76,6 +80,21 @@
 	// in-memory against fetched detail records.
 	const builtinFilterableProps = $derived(builtinFilterableProperties(type));
 	const filterableProperties = $derived([...customProperties, ...builtinFilterableProps]);
+
+	// True when *anything* is narrowing the list (property filters,
+	// tag filters, or built-in chips) — drives the empty-state copy.
+	const anyFilterActive = $derived(
+		hasActiveFilters(propertyFilters) || $filters.tags.length > 0
+	);
+
+	function clearAllFilters() {
+		filters.clear();
+		const url = new URL(page.url);
+		for (const k of ['text', 'num', 'date', 'sort', 'sort_dir']) {
+			url.searchParams.delete(k);
+		}
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
 	// Generic group-by used by the list & table views (separate from
 	// `kanban_by` which the kanban needs because its "ungrouped" state is
@@ -388,6 +407,99 @@
 		};
 	});
 
+	// Workspace-scoped keyboard shortcuts. Documented in
+	// $lib/components/ShortcutsHelp.svelte. These only fire when no
+	// modal is open and no text input is focused.
+	const anyModalOpen = $derived(
+		creating || editingForm || editingBody || saveDialogOpen || focusMode
+	);
+
+	function moveSelectionBy(delta: number) {
+		if (items.length === 0) return;
+		const currentIdx = fileId ? items.findIndex((i) => i.file_id === fileId) : -1;
+		let next = currentIdx + delta;
+		if (currentIdx === -1) {
+			next = delta > 0 ? 0 : items.length - 1;
+		}
+		next = Math.max(0, Math.min(items.length - 1, next));
+		if (next === currentIdx) return;
+		const url = new URL(page.url);
+		url.pathname = `/${type}/${items[next].file_id}`;
+		void goto(url, { keepFocus: true });
+	}
+
+	onMount(() => {
+		function onKey(event: KeyboardEvent) {
+			// Esc exits focus mode first. Other modals own their own
+			// Esc handling. We do this before the typing-target check
+			// so Esc works even if the user's cursor is in an input.
+			if (event.key === 'Escape' && focusMode) {
+				event.preventDefault();
+				focusMode = false;
+				return;
+			}
+			if (isTypingTarget(event.target)) return;
+
+			// Detail-panel shortcuts: only with an entity selected. Focus
+			// mode still allows these so the user can edit from focus.
+			if (selected) {
+				if (event.key === 'e' && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+					event.preventDefault();
+					editingForm = true;
+					return;
+				}
+				if (event.key === 'E' && event.shiftKey && !event.metaKey && !event.ctrlKey) {
+					event.preventDefault();
+					editingBody = true;
+					return;
+				}
+				if (event.key === 'f' && !event.metaKey && !event.ctrlKey) {
+					event.preventDefault();
+					focusMode = !focusMode;
+					return;
+				}
+				if ((event.metaKey || event.ctrlKey) && event.key === 'Backspace') {
+					event.preventDefault();
+					void handleDelete();
+					return;
+				}
+			}
+
+			// List navigation — suppressed while a modal blocks the list.
+			if (anyModalOpen) return;
+			if (event.key === 'j' || event.key === 'ArrowDown') {
+				event.preventDefault();
+				moveSelectionBy(1);
+				return;
+			}
+			if (event.key === 'k' || event.key === 'ArrowUp') {
+				event.preventDefault();
+				moveSelectionBy(-1);
+				return;
+			}
+			if (event.key === 'g' && !event.shiftKey) {
+				event.preventDefault();
+				if (items.length > 0) {
+					const url = new URL(page.url);
+					url.pathname = `/${type}/${items[0].file_id}`;
+					void goto(url, { keepFocus: true });
+				}
+				return;
+			}
+			if (event.key === 'G' && event.shiftKey) {
+				event.preventDefault();
+				if (items.length > 0) {
+					const url = new URL(page.url);
+					url.pathname = `/${type}/${items[items.length - 1].file_id}`;
+					void goto(url, { keepFocus: true });
+				}
+				return;
+			}
+		}
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
+
 	// Active view tracking. URL param `?view_id=<id>` selects a saved view;
 	// when active, edits to filter/sort/group propagate into the URL but the
 	// view tab stays highlighted (state can diverge — saving updates the view).
@@ -396,8 +508,6 @@
 		if (!activeViewId) return null;
 		return $viewsStore.file?.types[type]?.views.find((v) => v.id === activeViewId) ?? null;
 	});
-
-	let saveDialogOpen = $state(false);
 
 	function applyView(view: View | null) {
 		const url = new URL(page.url);
@@ -455,7 +565,10 @@
 				card_properties: body.cardProperties
 			});
 		} catch (e) {
-			alert(`Couldn't save changes to view: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error(
+				"Couldn't save changes to view",
+				e instanceof Error ? e.message : String(e)
+			);
 		}
 	}
 
@@ -465,15 +578,116 @@
 
 	async function handleDelete() {
 		if (!selected || !fileId) return;
-		if (($settings?.confirm_deletes ?? true) && !(await confirmDestructive(`Move "${selected.entity.name}" to trash?`))) return;
+		const name = selected.entity.name as string;
+		if (($settings?.confirm_deletes ?? true) && !(await confirmDestructive(`Move "${name}" to trash?`))) return;
 		try {
 			await deleteEntity(type, fileId);
 			selected = null;
 			focusMode = false;
 			await loadList();
 			goto(`/${type}`);
+			toasts.success(`Moved "${name}" to trash`);
 		} catch (e) {
-			alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Delete failed', e instanceof Error ? e.message : String(e));
+		}
+	}
+
+	// Right-click context menu on list rows. Renders fixed at the
+	// click coordinates so it never gets clipped by the section's
+	// overflow:hidden — same approach used for the three-dot menus
+	// in DetailPanel and ViewTabs.
+	let ctxMenu:
+		| { x: number; y: number; item: EntityListItem }
+		| null = $state(null);
+
+	function openContextMenu(event: MouseEvent, item: EntityListItem) {
+		// Keep the menu inside the viewport on the right and bottom
+		// edges. 200x180 is a generous bounding box for our menu items.
+		const x = Math.min(event.clientX, window.innerWidth - 200);
+		const y = Math.min(event.clientY, window.innerHeight - 180);
+		ctxMenu = { x, y, item };
+	}
+
+	$effect(() => {
+		if (!ctxMenu) return;
+		function close() {
+			ctxMenu = null;
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') close();
+		}
+		const id = window.setTimeout(() => {
+			window.addEventListener('click', close);
+		}, 0);
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('scroll', close, true);
+		return () => {
+			window.clearTimeout(id);
+			window.removeEventListener('click', close);
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('scroll', close, true);
+		};
+	});
+
+	function entityPathFor(fileIdValue: string): string | null {
+		if (!$settings) return null;
+		return `${$settings.data_folder.replace(/\/$/, '')}/${fileIdValue}.md`;
+	}
+
+	async function ctxOpen() {
+		if (!ctxMenu) return;
+		const id = ctxMenu.item.file_id;
+		ctxMenu = null;
+		const url = new URL(page.url);
+		url.pathname = `/${type}/${id}`;
+		await goto(url, { keepFocus: true });
+	}
+
+	async function ctxReveal() {
+		if (!ctxMenu) return;
+		const path = entityPathFor(ctxMenu.item.file_id);
+		ctxMenu = null;
+		if (!path) return;
+		try {
+			await revealInFileManager(path);
+		} catch (e) {
+			toasts.error('Reveal failed', e instanceof Error ? e.message : String(e));
+		}
+	}
+
+	async function ctxCopyId() {
+		if (!ctxMenu) return;
+		const id = ctxMenu.item.file_id;
+		ctxMenu = null;
+		try {
+			await navigator.clipboard.writeText(id);
+			toasts.success('Copied file ID', id);
+		} catch {
+			toasts.error('Clipboard unavailable');
+		}
+	}
+
+	async function ctxDelete() {
+		if (!ctxMenu) return;
+		const item = ctxMenu.item;
+		ctxMenu = null;
+		if (
+			($settings?.confirm_deletes ?? true) &&
+			!(await confirmDestructive(`Move "${item.name}" to trash?`))
+		) {
+			return;
+		}
+		try {
+			await deleteEntity(type, item.file_id);
+			if (fileId === item.file_id) {
+				selected = null;
+				focusMode = false;
+				goto(`/${type}`);
+			}
+			await loadList();
+			toasts.success(`Moved "${item.name}" to trash`);
+		} catch (e) {
+			toasts.error('Delete failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 </script>
@@ -566,7 +780,7 @@
 
 		<div class="min-h-0 flex-1 overflow-auto">
 			{#if loading}
-				<div class="p-8 text-center text-[var(--color-muted)]">Loading...</div>
+				<EntityListSkeleton />
 			{:else if error}
 				<div class="p-8 text-center text-[var(--color-bad)]">Error: {error}</div>
 			{:else if type === 'application' && view === 'kanban'}
@@ -613,9 +827,18 @@
 					{details}
 					groupBy={groupProp}
 					{selectedFileId}
+					onContextMenu={openContextMenu}
 				/>
 			{:else}
-				<EntityList {items} {type} {selectedFileId} {details} />
+				<EntityList
+					{items}
+					{type}
+					{selectedFileId}
+					{details}
+					onContextMenu={openContextMenu}
+					filtersActive={anyFilterActive}
+					onClearFilters={clearAllFilters}
+				/>
 			{/if}
 		</div>
 	</section>
@@ -714,6 +937,34 @@
 			void goto(url, { replaceState: true });
 		}}
 	/>
+{/if}
+
+{#if ctxMenu}
+	<!-- Right-click context menu for list rows. Same fixed-position
+		 pattern as the three-dot menus so it can't be clipped by the
+		 nested overflow contexts. Click-outside / Escape / scroll all
+		 dismiss via the $effect above. -->
+	<div
+		role="menu"
+		class="fixed z-50 w-48 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-xs shadow-xl"
+		style="top: {ctxMenu.y}px; left: {ctxMenu.x}px"
+	>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={ctxOpen}>
+			Open
+		</button>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={ctxReveal}>
+			Show in file manager
+		</button>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={ctxCopyId}>
+			Copy file ID
+		</button>
+		<button
+			class="block w-full border-t border-[var(--color-border)] px-3 py-2 text-left text-[var(--color-bad)] hover:bg-red-900/30"
+			onclick={ctxDelete}
+		>
+			Move to trash
+		</button>
+	</div>
 {/if}
 
 <style>
