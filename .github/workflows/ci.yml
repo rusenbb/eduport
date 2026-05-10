@@ -41,12 +41,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # `cargo package` (not --dry-run) because eduport-core's
-      # vaultdb-core dep resolves through `path` locally — the
-      # registry-based dry-run would fail until vaultdb-core is
-      # actually published. `cargo package` validates the manifest
-      # shape without the registry lookup.
-      - run: cargo package --allow-dirty -p eduport-core
+      # `cargo package --no-verify` validates the manifest shape
+      # without the verify-compile step (which would try to resolve
+      # vaultdb-core from crates.io and fail until vaultdb-core is
+      # actually published). After vaultdb-core lands on the
+      # registry, drop `--no-verify` to also catch dep-resolution
+      # bugs at CI time instead of release time.
+      - run: cargo package --no-verify --allow-dirty -p eduport-core
 
   frontend:
     name: svelte-check + vitest
