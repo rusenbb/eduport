@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { createEntity, updateEntity } from '$lib/api/entities';
+	import { toasts } from '$lib/stores/toasts';
 	import { FIELD_DEFS, TYPE_LABELS, typeTag, userTags, type FieldDef } from '$lib/entities/meta';
 	import type { EntityType } from '$lib/types';
 	import BodyEditor from './BodyEditor.svelte';
@@ -127,6 +128,7 @@
 		saving = true;
 		try {
 			let resultId: string;
+			const wasUpdate = !!fileId;
 			if (fileId) {
 				const r = await updateEntity(type, fileId, frontmatter, body);
 				resultId = r.file_id;
@@ -136,6 +138,10 @@
 			}
 			onDone?.(resultId);
 			goto(`/${type}/${resultId}`);
+			const displayName = String(frontmatter.name ?? resultId);
+			toasts.success(
+				wasUpdate ? `Saved "${displayName}"` : `Created ${TYPE_LABELS[type].toLowerCase()} "${displayName}"`
+			);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
