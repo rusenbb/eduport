@@ -87,6 +87,35 @@ pub fn reconcile(
         }
     }
 
+    // Evict stale parse_errors. The `parse_errors` table doesn't
+    // share a lifecycle with `entities`, so two scenarios used to
+    // strand entries forever:
+    //   1. an earlier version of the reconciler walked into
+    //      subfolders and recorded errors for notes/*.md files we
+    //      no longer scan;
+    //   2. a file with a parse error was deleted on disk — the
+    //      orphan loop above removes the `entities` row, not the
+    //      `parse_errors` row.
+    // We drop any parse_errors entry whose path is no longer a
+    // top-level vault-root `.md` file that exists on disk.
+    let root = &store.vault().root;
+    let stale: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT path FROM parse_errors")?;
+        let rows: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .filter_map(Result::ok)
+            .collect();
+        rows.into_iter()
+            .filter(|p| {
+                let path = Path::new(p);
+                path.parent() != Some(root.as_path()) || !path.exists()
+            })
+            .collect()
+    };
+    for p in stale {
+        clear_parse_error(conn, &p)?;
+    }
+
     Ok(summary)
 }
 
