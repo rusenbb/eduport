@@ -498,6 +498,15 @@
 		<div class="border-t border-[var(--color-border)] px-4 py-3">
 			<BodyView body={localBody} fileId={detail.file_id} onChange={(newBody) => (localBody = newBody)} />
 		</div>
+	{:else}
+		<div class="border-t border-[var(--color-border)] px-4 py-3 text-xs text-[var(--color-muted)]">
+			No body yet.
+			<button class="ml-1 underline hover:text-[var(--color-text)]" onclick={onEditBody}>
+				Add one
+			</button>
+			or press
+			<kbd class="rounded border border-[var(--color-border)] px-1">⇧E</kbd>.
+		</div>
 	{/if}
 
 	{#if relatedEmails.length > 0}
