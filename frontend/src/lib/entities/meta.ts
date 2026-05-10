@@ -1,4 +1,5 @@
 import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
+import type { Property } from '$lib/types/schema';
 
 export interface FieldDef {
 	key: string;
@@ -104,6 +105,68 @@ export const FIELD_DEFS: Record<EntityType, FieldDef[]> = {
 	],
 	note: []
 };
+
+/**
+ * Built-in fields that make sense to filter on, surfaced as synthetic
+ * `Property` records so they slot into the existing PropertyFilterBar
+ * UI alongside user-declared custom properties.
+ *
+ * The Rust index only ever knows about custom properties — built-in
+ * fields live in the entity's frontmatter and aren't in the
+ * `properties` SQLite table. We split filters on the call site
+ * (see `EntityWorkspace.loadList`): backend gets the custom keys,
+ * built-in keys are post-filtered in memory against the already-
+ * fetched detail records.
+ *
+ * Every type also gets a synthetic "Name contains" filter, since the
+ * `name` field is universal and easier to remember than building a
+ * search query.
+ */
+export function builtinFilterableProperties(type: EntityType): Property[] {
+	const fields = FIELD_DEFS[type] ?? [];
+	const filterable: Property[] = [
+		{
+			key: 'name',
+			name: 'Name',
+			description: 'Entity name (contains)',
+			required: false,
+			type: 'text'
+		} as Property
+	];
+	for (const f of fields) {
+		if (f.kind === 'text' || f.kind === 'email') {
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'text'
+			} as Property);
+		} else if (f.kind === 'date') {
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'date'
+			} as Property);
+		} else if (f.kind === 'select' && f.options) {
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'single-select',
+				options: f.options.map((o) => ({ value: o, label: o, color: 'gray' }))
+			} as Property);
+		}
+	}
+	return filterable;
+}
+
+/** Keys recognised as built-in (non-schema) filter fields, used by
+ * loadList to split filter routing between backend (custom-property
+ * indexed) and frontend (in-memory). */
+export function builtinFilterKeys(type: EntityType): Set<string> {
+	return new Set(builtinFilterableProperties(type).map((p) => p.key));
+}
 
 export function typeTag(type: EntityType): string {
 	return TYPE_TAGS[type];

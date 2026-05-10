@@ -1,0 +1,17 @@
+Bundled fonts and their licenses
+=================================
+
+Inter (InterVariable.woff2, InterVariable-Italic.woff2)
+  Copyright 2016 The Inter Project Authors
+  https://github.com/rsms/inter
+  Licensed under the SIL Open Font License, Version 1.1
+  https://openfontlicense.org
+
+JetBrains Mono (JetBrainsMono-Variable.woff2)
+  Copyright 2020 The JetBrains Mono Project Authors
+  https://github.com/JetBrains/JetBrainsMono
+  Licensed under the SIL Open Font License, Version 1.1
+  https://openfontlicense.org
+
+These fonts are bundled with the Eduport desktop app under the terms
+of the SIL Open Font License. They are not modified.

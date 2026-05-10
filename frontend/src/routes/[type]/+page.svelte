@@ -1,15 +1,7 @@
-<script lang="ts">
-	import { page } from '$app/state';
-	import EntityWorkspace from '$lib/components/EntityWorkspace.svelte';
-	import { ENTITY_TYPES, type EntityType } from '$lib/types';
-
-	const typeParam = $derived(page.params.type as string);
-	const isValidType = $derived((ENTITY_TYPES as string[]).includes(typeParam));
-	const type = $derived(typeParam as EntityType);
-</script>
-
-{#if !isValidType}
-	<div class="p-8 text-center text-[var(--color-bad)]">Unknown entity type: {typeParam}</div>
-{:else}
-	<EntityWorkspace {type} />
-{/if}
+<!--
+	The entire [type]/... workspace is rendered by +layout.svelte so
+	the component instance survives navigation to /[type]/[fileId]
+	and back — selection does not remount the workspace and so does
+	not refetch the list. This file exists only to make /[type] a
+	valid route; the layout draws the actual UI.
+-->

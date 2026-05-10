@@ -14,12 +14,14 @@
 		activeViewId,
 		onSelect,
 		onSaveCurrent,
+		onUpdateActive,
 		onActiveDeleted
 	}: {
 		entityType: EntityType;
 		activeViewId: string | null;
 		onSelect: (view: View | null) => void;
 		onSaveCurrent: () => void;
+		onUpdateActive: () => void;
 		onActiveDeleted: () => void;
 	} = $props();
 
@@ -27,6 +29,80 @@
 
 	let menuOpenFor: string | null = $state(null);
 	let renaming: View | null = $state(null);
+	// Transient feedback for the "Save changes to view" button so the
+	// user sees confirmation that the click took effect — otherwise
+	// the change happens entirely silently and looks like a no-op.
+	let saveState: 'idle' | 'saving' | 'saved' = $state('idle');
+
+	async function handleUpdateActive() {
+		if (saveState === 'saving') return;
+		saveState = 'saving';
+		try {
+			await onUpdateActive();
+			saveState = 'saved';
+			setTimeout(() => {
+				if (saveState === 'saved') saveState = 'idle';
+			}, 1500);
+		} catch {
+			saveState = 'idle';
+		}
+	}
+
+	// Same fix as DetailPanel's three-dot: ViewTabs is nested inside
+	// the workspace grid (overflow-hidden) and the list section
+	// (overflow-hidden), so an `absolute z-30` dropdown was clipped
+	// underneath the list header. We compute the toggle's bounding
+	// rect from the click event's currentTarget and render the menu
+	// `position: fixed` at a `z-50` higher than any modal in the app.
+	let menuPos: { top: number; right: number } = $state({ top: 0, right: 0 });
+	let activeTrigger: HTMLButtonElement | null = null;
+
+	function toggleMenu(viewId: string, trigger: HTMLButtonElement) {
+		if (menuOpenFor === viewId) {
+			menuOpenFor = null;
+			activeTrigger = null;
+			return;
+		}
+		const r = trigger.getBoundingClientRect();
+		menuPos = { top: r.bottom + 4, right: window.innerWidth - r.right };
+		activeTrigger = trigger;
+		menuOpenFor = viewId;
+	}
+
+	const openView = $derived(menuOpenFor ? views.find((v) => v.id === menuOpenFor) ?? null : null);
+
+	$effect(() => {
+		if (!menuOpenFor) return;
+		function onDocClick(e: MouseEvent) {
+			const target = e.target as Node;
+			if (activeTrigger?.contains(target)) return;
+			menuOpenFor = null;
+			activeTrigger = null;
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') {
+				menuOpenFor = null;
+				activeTrigger = null;
+			}
+		}
+		function onScrollOrResize() {
+			menuOpenFor = null;
+			activeTrigger = null;
+		}
+		const id = window.setTimeout(() => {
+			window.addEventListener('click', onDocClick);
+		}, 0);
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('resize', onScrollOrResize);
+		window.addEventListener('scroll', onScrollOrResize, true);
+		return () => {
+			window.clearTimeout(id);
+			window.removeEventListener('click', onDocClick);
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('resize', onScrollOrResize);
+			window.removeEventListener('scroll', onScrollOrResize, true);
+		};
+	});
 
 	async function deleteView(v: View) {
 		if (!confirm(`Delete view "${v.name}"?`)) return;
@@ -58,32 +134,33 @@
 				<button
 					class="rounded-t border-b-0 px-1 py-1.5 text-[var(--color-muted)] hover:bg-white/5 hover:text-[var(--color-text)]"
 					aria-label="View options"
-					onclick={() => (menuOpenFor = menuOpenFor === v.id ? null : v.id)}
+					aria-haspopup="menu"
+					aria-expanded={menuOpenFor === v.id}
+					onclick={(e) => toggleMenu(v.id, e.currentTarget)}
 				>
 					⋯
 				</button>
-				{#if menuOpenFor === v.id}
-					<div class="absolute right-0 top-full z-30 w-36 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] shadow-xl">
-						<button
-							class="block w-full border-b border-[var(--color-border)] px-3 py-1.5 text-left hover:bg-white/5"
-							onclick={() => {
-								renaming = v;
-								menuOpenFor = null;
-							}}
-						>
-							Rename
-						</button>
-						<button
-							class="block w-full px-3 py-1.5 text-left hover:bg-red-900/30"
-							onclick={() => deleteView(v)}
-						>
-							Delete
-						</button>
-					</div>
-				{/if}
 			{/if}
 		</div>
 	{/each}
+	{#if activeViewId}
+		<button
+			class="ml-1 flex items-center gap-1 whitespace-nowrap rounded border px-2 py-1 transition-colors disabled:cursor-default"
+			class:saved={saveState === 'saved'}
+			class:idle={saveState !== 'saved'}
+			disabled={saveState === 'saving'}
+			onclick={handleUpdateActive}
+			title="Overwrite this view with the current filter / sort / group / columns / view-mode"
+		>
+			{#if saveState === 'saved'}
+				<Icon name="check" size={12} /> Saved
+			{:else if saveState === 'saving'}
+				Saving…
+			{:else}
+				<Icon name="check" size={12} /> Save changes to view
+			{/if}
+		</button>
+	{/if}
 	<button
 		class="ml-1 flex items-center gap-1 whitespace-nowrap rounded border border-dashed border-[var(--color-border)] px-2 py-1 text-[var(--color-muted)] hover:bg-white/5 hover:text-[var(--color-text)]"
 		onclick={onSaveCurrent}
@@ -92,6 +169,34 @@
 		<Icon name="plus" size={12} /> New view
 	</button>
 </div>
+
+{#if openView}
+	<!-- See toggleMenu above — rendered `fixed` so the workspace
+		 grid / list section's overflow:hidden can't clip the menu
+		 underneath the list header. -->
+	<div
+		role="menu"
+		class="fixed z-50 w-36 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-xs shadow-xl"
+		style="top: {menuPos.top}px; right: {menuPos.right}px"
+	>
+		<button
+			class="block w-full border-b border-[var(--color-border)] px-3 py-1.5 text-left hover:bg-white/5"
+			onclick={() => {
+				renaming = openView;
+				menuOpenFor = null;
+				activeTrigger = null;
+			}}
+		>
+			Rename
+		</button>
+		<button
+			class="block w-full px-3 py-1.5 text-left hover:bg-red-900/30"
+			onclick={() => deleteView(openView!)}
+		>
+			Delete
+		</button>
+	</div>
+{/if}
 
 {#if renaming}
 	{#await import('./SaveViewDialog.svelte') then mod}
@@ -118,5 +223,18 @@
 		background-color: rgba(108, 182, 255, 0.15);
 		color: var(--color-accent);
 		border-color: var(--color-border);
+	}
+	.idle {
+		border-color: rgba(108, 182, 255, 0.4);
+		background-color: rgba(108, 182, 255, 0.1);
+		color: var(--color-accent);
+	}
+	.idle:hover {
+		background-color: rgba(108, 182, 255, 0.2);
+	}
+	.saved {
+		border-color: rgba(98, 196, 84, 0.4);
+		background-color: rgba(98, 196, 84, 0.15);
+		color: var(--color-good);
 	}
 </style>

@@ -19,6 +19,7 @@
 		| 'warning'
 		| 'plus'
 		| 'x'
+		| 'check'
 		| 'sliders';
 </script>
 
@@ -108,6 +109,8 @@
 		<path d="M12 5v14" /><path d="M5 12h14" />
 	{:else if name === 'x'}
 		<path d="M18 6 6 18" /><path d="m6 6 12 12" />
+	{:else if name === 'check'}
+		<path d="M20 6 9 17l-5-5" />
 	{:else if name === 'sliders'}
 		<line x1="4" x2="4" y1="21" y2="14" />
 		<line x1="4" x2="4" y1="10" y2="3" />

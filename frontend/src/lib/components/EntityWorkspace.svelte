@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getContext } from 'svelte';
+	import { getContext, onMount } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { deleteEntity, getEntity, listEntities } from '$lib/api/entities';
+	import { CoreCommandError, listenCoreEvent } from '$lib/api/client';
 	import {
 		filterEntitiesByProperties,
 		hasActiveFilters,
@@ -15,8 +16,8 @@
 	import { settings } from '$lib/stores/settings';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import { DEFAULT_PROPERTY_FILTERS, type PropertyFilters } from '$lib/types/schema';
-	import { TYPE_LABELS } from '$lib/entities/meta';
-	import { confirmDestructive } from '$lib/tauri';
+	import { TYPE_LABELS, builtinFilterableProperties } from '$lib/entities/meta';
+	import { confirmDestructive, isTauri } from '$lib/tauri';
 	import EntityBodyEditor from './EntityBodyEditor.svelte';
 	import DetailPanel from './DetailPanel.svelte';
 	import EntityForm from './EntityForm.svelte';
@@ -68,6 +69,13 @@
 
 	const groupBy = $derived(page.url.searchParams.get('group') === 'application' ? 'application' : 'none');
 	const customProperties = $derived($schemaStore.schema?.types[type]?.properties ?? []);
+	// Synthetic Property records for the entity type's built-in
+	// fields (name, country, city, …) so PropertyFilterBar can show
+	// them in the same chip UI alongside custom properties. They're
+	// stripped from the backend filter at loadList time and applied
+	// in-memory against fetched detail records.
+	const builtinFilterableProps = $derived(builtinFilterableProperties(type));
+	const filterableProperties = $derived([...customProperties, ...builtinFilterableProps]);
 
 	// Generic group-by used by the list & table views (separate from
 	// `kanban_by` which the kanban needs because its "ungrouped" state is
@@ -188,12 +196,34 @@
 		loading = true;
 		error = null;
 		try {
+			// Split text filters by routing: the indexed `properties`
+			// SQL table only knows about custom (user-declared) schema
+			// keys, so built-in keys (name, country, city, …) must be
+			// handled in-memory against the fetched detail records.
+			// Anything that isn't a custom-property key is treated as
+			// built-in, including the synthetic "Name" filter.
+			const customKeys = new Set(customProperties.map((p) => p.key));
+			const customTextFilters: Record<string, string> = {};
+			const builtinTextFilters: Record<string, string> = {};
+			for (const [k, v] of Object.entries(propertyFilters.text)) {
+				if (v === '') continue; // "(any)" placeholder — ignored
+				if (customKeys.has(k)) customTextFilters[k] = v;
+				else builtinTextFilters[k] = v;
+			}
+			const backendFilters: PropertyFilters = {
+				text: customTextFilters,
+				num: propertyFilters.num,
+				date: propertyFilters.date,
+				sort: propertyFilters.sort,
+				sortDir: propertyFilters.sortDir
+			};
+
 			// Property filters / sort use the indexed query path; tag filters use
 			// the existing list endpoint. When both apply, fetch via property
 			// filters and intersect against the tag-list result.
 			let baseItems: EntityListItem[];
-			if (hasActiveFilters(propertyFilters)) {
-				baseItems = await filterEntitiesByProperties(type, propertyFilters);
+			if (hasActiveFilters(backendFilters)) {
+				baseItems = await filterEntitiesByProperties(type, backendFilters);
 				if ($filters.tags.length > 0) {
 					const tagged = new Set(
 						(await listEntities(type, $filters.tags)).map((i) => i.file_id)
@@ -203,10 +233,9 @@
 			} else {
 				baseItems = await listEntities(type, $filters.tags);
 			}
-			items = baseItems;
 			const nextDetails: Record<string, EntityDetail | null> = {};
 			await Promise.all(
-				items.map(async (item) => {
+				baseItems.map(async (item) => {
 					try {
 						nextDetails[item.file_id] = await getEntity(type, item.file_id);
 					} catch {
@@ -214,6 +243,29 @@
 					}
 				})
 			);
+
+			// In-memory post-filter for built-in fields. Simple
+			// case-insensitive substring match — matches the UX of
+			// the chip placeholder text ("contains…").
+			if (Object.keys(builtinTextFilters).length > 0) {
+				baseItems = baseItems.filter((item) => {
+					const detail = nextDetails[item.file_id];
+					if (!detail) return false;
+					for (const [k, v] of Object.entries(builtinTextFilters)) {
+						const raw = (detail.entity as Record<string, unknown>)[k];
+						const fieldValue =
+							raw == null
+								? ''
+								: typeof raw === 'string'
+									? raw
+									: JSON.stringify(raw);
+						if (!fieldValue.toLowerCase().includes(v.toLowerCase())) return false;
+					}
+					return true;
+				});
+			}
+
+			items = baseItems;
 			details = nextDetails;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -232,8 +284,20 @@
 			selected = await getEntity(type, fileId);
 			details = { ...details, [fileId]: selected };
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-			selected = null;
+			// Stale fileId in the URL — e.g. the user deleted the file
+			// externally and then refreshed the app, or the watcher hasn't
+			// dropped the row from the index yet. Clear the selection and
+			// drop the fileId from the URL so future refreshes don't keep
+			// repeating the error; the list still re-renders correctly.
+			if (e instanceof CoreCommandError && e.code === 'not_found') {
+				selected = null;
+				if (page.url.pathname !== `/${type}`) {
+					void goto(`/${type}${page.url.search}`, { replaceState: true, keepFocus: true });
+				}
+			} else {
+				error = e instanceof Error ? e.message : String(e);
+				selected = null;
+			}
 		} finally {
 			detailLoading = false;
 		}
@@ -248,16 +312,80 @@
 	});
 
 	$effect(() => {
-		// Re-parse filters from the URL whenever the entity type or query
-		// string changes — keeps sidebar-driven navigation in sync with the
-		// filter bar's local state.
+		// Re-parse filters from the URL whenever the entity type or
+		// search string actually changes. parseFilterParams returns a
+		// fresh object each call, so a naive assignment would cascade
+		// into the loadList effect on *any* navigation (including a
+		// pathname-only change from /[type] to /[type]/[fileId] when
+		// clicking an entity), producing a Loading… flash on every
+		// row click. Deep-compare and only reassign on real change.
 		type;
-		propertyFilters = parseFilterParams(page.url.searchParams);
+		const parsed = parseFilterParams(page.url.searchParams);
+		if (JSON.stringify(parsed) !== JSON.stringify(propertyFilters)) {
+			propertyFilters = parsed;
+		}
 	});
 
 	$effect(() => {
 		void schemaStore.load();
 		void viewsStore.load();
+	});
+
+	// Watcher-driven reloads. The workspace is mounted once per
+	// /[type]/... layout session (see ../routes/[type]/+layout.svelte);
+	// inside it we only refetch when the data actually changed, never
+	// on item selection. Sources of "real change":
+	//   - external file edits (Obsidian, finder, CLI) → entity_changed/_deleted
+	//   - schema or saved-view edits → schema_changed / views_changed
+	//   - full rescan requests → needs_rescan
+	// In-app writes call `Watcher::note_self_write(path)` before the
+	// write, so the watcher suppresses our own events; the explicit
+	// loadList/loadDetail calls in onDone handlers below handle those.
+	// Events are debounced to coalesce bursts (drag-drop, rapid saves).
+	type VaultEventPayload = {
+		kind: 'entity_changed' | 'entity_deleted' | 'schema_changed' | 'views_changed' | 'needs_rescan';
+		file_id?: string;
+		path?: string;
+	};
+
+	onMount(() => {
+		if (!isTauri()) return;
+		let unlisten: (() => void) | null = null;
+		let pending: ReturnType<typeof setTimeout> | null = null;
+		const schedule = (fn: () => void) => {
+			if (pending) clearTimeout(pending);
+			pending = setTimeout(() => {
+				pending = null;
+				fn();
+			}, 200);
+		};
+		void listenCoreEvent<VaultEventPayload>('eduport:vault-event', (payload) => {
+			switch (payload.kind) {
+				case 'entity_changed':
+				case 'entity_deleted':
+				case 'needs_rescan':
+					schedule(() => {
+						void loadList();
+						if (payload.file_id && payload.file_id === fileId) {
+							void loadDetail();
+						}
+					});
+					break;
+				case 'schema_changed':
+					void schemaStore.load();
+					schedule(() => void loadList());
+					break;
+				case 'views_changed':
+					void viewsStore.load();
+					break;
+			}
+		}).then((u) => {
+			unlisten = u;
+		});
+		return () => {
+			if (pending) clearTimeout(pending);
+			unlisten?.();
+		};
 	});
 
 	// Active view tracking. URL param `?view_id=<id>` selects a saved view;
@@ -306,6 +434,31 @@
 		} as const;
 	}
 
+	// "Save changes to view" — overwrite the currently active view's
+	// stored state with whatever filter / sort / group / columns / view
+	// kind the user has set right now. Views are otherwise immutable
+	// snapshots: clicking the tab restores the snapshot exactly, so
+	// any unsaved tweaks are lost on the next tab switch.
+	async function updateActiveView() {
+		const v = activeView;
+		if (!v) return;
+		const body = captureCurrentAsViewBody();
+		try {
+			await viewsStore.update(type, v.id, {
+				name: v.name,
+				kind: body.viewKind,
+				filter: body.filter,
+				sort_key: body.sortKey,
+				sort_dir: body.sortDir,
+				group_by_key: body.groupByKey,
+				columns: body.columns,
+				card_properties: body.cardProperties
+			});
+		} catch (e) {
+			alert(`Couldn't save changes to view: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
 	$effect(() => {
 		void loadDetail();
 	});
@@ -332,6 +485,7 @@
 			activeViewId={activeViewId ?? null}
 			onSelect={applyView}
 			onSaveCurrent={() => (saveDialogOpen = true)}
+			onUpdateActive={updateActiveView}
 			onActiveDeleted={() => applyView(null)}
 		/>
 		<header class="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
@@ -402,9 +556,9 @@
 			</div>
 		</header>
 
-		{#if customProperties.length > 0 && !(type === 'application' && view === 'kanban')}
+		{#if filterableProperties.length > 0 && !(type === 'application' && view === 'kanban')}
 			<PropertyFilterBar
-				properties={customProperties}
+				properties={filterableProperties}
 				filters={propertyFilters}
 				onChange={syncFiltersToUrl}
 			/>

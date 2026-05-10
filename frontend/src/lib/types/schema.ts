@@ -94,9 +94,13 @@ export type Property =
 	| UrlProperty
 	| RelationProperty;
 
+// `entity_type` is not in the Rust serialization (the map key in
+// `FullSchema.types` carries it); `builtin_keys` was a legacy field
+// from the Python sidecar that the Rust side stopped emitting.
+// Keeping `builtin_keys` here as optional so any consumer that still
+// reads it gets `undefined` instead of a hard error.
 export interface EntityTypeSchema {
-	entity_type: EntityType;
-	builtin_keys: string[];
+	builtin_keys?: string[];
 	properties: Property[];
 }
 

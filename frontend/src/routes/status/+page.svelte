@@ -26,7 +26,7 @@
 <main class="p-6">
 	<header class="mb-5">
 		<h1 class="text-2xl font-semibold">Status</h1>
-		<p class="mt-1 text-sm text-[var(--color-muted)]">Parser errors and backend health surfaced from the sidecar index.</p>
+		<p class="mt-1 text-sm text-[var(--color-muted)]">Parser errors and backend health surfaced from the vault index.</p>
 	</header>
 
 	{#if loading}

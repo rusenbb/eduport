@@ -89,8 +89,8 @@
 		<div>
 			<h1 class="text-xl font-semibold text-[var(--color-bad)]">Backend offline</h1>
 			<p class="mt-2 text-sm text-[var(--color-muted)]">
-				Eduport can't reach its sidecar. Make sure <code class="rounded bg-white/5 px-1">eduport-sidecar</code>
-				is running and reachable.
+				Eduport's core can't open the vault. Check that the data folder in
+				<a href="/settings" class="underline">Settings</a> exists and is readable.
 			</p>
 			<button class="mt-4 rounded border border-[var(--color-border)] bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10" onclick={() => status.check()}>
 				Retry

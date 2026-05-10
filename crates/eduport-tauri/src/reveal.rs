@@ -21,16 +21,41 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        // xdg-open opens the *parent* folder; selection isn't standardized
-        // across Linux file managers.
-        let parent = std::path::Path::new(&path)
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        Command::new("xdg-open")
-            .arg(parent)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        // The freedesktop `org.freedesktop.FileManager1.ShowItems` D-Bus
+        // method opens the parent folder *and* selects the target file.
+        // It's implemented by every major Linux file manager (Nautilus,
+        // Nemo, Caja, Thunar ≥ 1.8, Dolphin, PCManFM). Fall back to
+        // `xdg-open` on the parent folder if D-Bus is unavailable or
+        // the FM1 interface isn't registered.
+        let abs = std::path::Path::new(&path)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(&path));
+        let uri = format!("file://{}", abs.display());
+
+        let dbus = Command::new("dbus-send")
+            .args([
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.FileManager1",
+                "--type=method_call",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowItems",
+                &format!("array:string:{uri}"),
+                "string:",
+            ])
+            .status();
+
+        let dbus_ok = matches!(&dbus, Ok(s) if s.success());
+        if !dbus_ok {
+            let parent = std::path::Path::new(&path)
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("/"));
+            Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }

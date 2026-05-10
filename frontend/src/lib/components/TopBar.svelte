@@ -2,6 +2,14 @@
 	import { status } from '$lib/stores/status';
 
 	let { onSearch, newAction }: { onSearch?: () => void; newAction?: { label: string; onClick: () => void } } = $props();
+
+	// macOS uses ⌘; everyone else uses Ctrl. The layout's keydown handler
+	// already accepts either (metaKey || ctrlKey) — this only fixes the
+	// label shown in the search button.
+	const isMac =
+		typeof navigator !== 'undefined' &&
+		/Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+	const kbdHint = isMac ? '⌘K' : 'Ctrl+K';
 </script>
 
 <div class="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-2">
@@ -9,9 +17,12 @@
 		onclick={onSearch}
 		class="flex flex-1 items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-1.5 text-left text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)]"
 	>
-		<span>🔍</span>
+		<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+			<circle cx="11" cy="11" r="7"></circle>
+			<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+		</svg>
 		<span class="flex-1">Search across everything</span>
-		<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+		<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px]">{kbdHint}</kbd>
 	</button>
 
 	{#if newAction}

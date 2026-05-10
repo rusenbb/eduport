@@ -92,13 +92,17 @@ export function filterEntitiesByProperties(
 	type: EntityType,
 	filters: PropertyFilters
 ): Promise<EntityListItem[]> {
-	// The Tauri command takes an object mirror of `PropertyFilters`,
-	// so we forward it verbatim. Range tuples (`[lo, hi]`) deserialize
-	// directly into Rust `(Option<f64>, Option<f64>)` etc.
+	// Range tuples (`[lo, hi]`) deserialize directly into Rust
+	// `(Option<f64>, Option<f64>)` etc. — forwarded verbatim. Empty
+	// text values, however, mean "(any)" in the chip UI and must be
+	// stripped here: the index treats `value_text = ''` as a literal
+	// match and would return zero rows for a tier chip set to (any).
 	return coreInvoke('core_filter_entities_by_properties', {
 		entityType: type,
 		filters: {
-			text: filters.text,
+			text: Object.fromEntries(
+				Object.entries(filters.text).filter(([, v]) => v !== '')
+			),
 			num: filters.num,
 			date: filters.date,
 			sort: filters.sort ?? null,
@@ -107,10 +111,12 @@ export function filterEntitiesByProperties(
 	});
 }
 
-/** Returns true when at least one filter / sort is active. */
+/** Returns true when at least one filter / sort actively narrows the
+ * list. Chips with an empty value (single-select set to "(any)") don't
+ * count — they're a configured-but-unconstrained placeholder. */
 export function hasActiveFilters(filters: PropertyFilters): boolean {
 	return (
-		Object.keys(filters.text).length > 0 ||
+		Object.values(filters.text).some((v) => v !== '') ||
 		Object.keys(filters.num).length > 0 ||
 		Object.keys(filters.date).length > 0 ||
 		!!filters.sort

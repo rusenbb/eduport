@@ -34,7 +34,12 @@ export function renderMarkdown(body: string): RenderResult {
 		}
 	});
 
-	const html = marked.parse(body, { async: false }) as string;
+	// `breaks: true` turns single newlines into <br> instead of
+	// collapsing them to whitespace (CommonMark default). Obsidian
+	// renders this way, and the user authors in an Obsidian-style
+	// vault — without this, prose typed with newline breaks looks
+	// like one run-on paragraph.
+	const html = marked.parse(body, { async: false, breaks: true, gfm: true }) as string;
 	const linked = html.replace(WIKILINK_RE, (_match, target) => {
 		const safe = String(target).trim().replace(/"/g, '&quot;');
 		return `<a class="wikilink text-[var(--color-accent)] hover:underline" data-target="${safe}">${safe}</a>`;

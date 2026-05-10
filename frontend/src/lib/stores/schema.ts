@@ -53,12 +53,15 @@ async function load(): Promise<FullSchema> {
 	return inflightLoad;
 }
 
-function mergeTypeSchema(typeSchema: EntityTypeSchema): void {
+// Same root cause as views.ts: Rust `EntitySchema` only serializes
+// `properties`, so the `entity_type` we tried to use as a map key was
+// always undefined. Pass the type in explicitly from the caller.
+function mergeTypeSchema(type: EntityType, typeSchema: EntityTypeSchema): void {
 	update((s) => {
 		if (!s.schema) return s;
 		const next: FullSchema = {
 			...s.schema,
-			types: { ...s.schema.types, [typeSchema.entity_type]: typeSchema }
+			types: { ...s.schema.types, [type]: typeSchema }
 		};
 		return { ...s, schema: next };
 	});
@@ -69,22 +72,22 @@ export const schemaStore = {
 	load,
 	async refresh(type?: EntityType): Promise<void> {
 		if (type) {
-			mergeTypeSchema(await getTypeSchema(type));
+			mergeTypeSchema(type, await getTypeSchema(type));
 		} else {
 			await load();
 		}
 	},
 	async addProperty(type: EntityType, prop: Property): Promise<void> {
-		mergeTypeSchema(await apiAdd(type, prop));
+		mergeTypeSchema(type, await apiAdd(type, prop));
 	},
 	async patchProperty(type: EntityType, key: string, patch: PropertyPatch): Promise<void> {
-		mergeTypeSchema(await apiPatch(type, key, patch));
+		mergeTypeSchema(type, await apiPatch(type, key, patch));
 	},
 	async deleteProperty(type: EntityType, key: string): Promise<void> {
-		mergeTypeSchema(await apiDelete(type, key));
+		mergeTypeSchema(type, await apiDelete(type, key));
 	},
 	async reorderProperties(type: EntityType, orderedKeys: string[]): Promise<void> {
-		mergeTypeSchema(await apiReorder(type, orderedKeys));
+		mergeTypeSchema(type, await apiReorder(type, orderedKeys));
 	},
 	async applyTierTemplate(types: EntityType[]): Promise<{ added: EntityType[]; existed: EntityType[] }> {
 		const result = await apiTierTemplate(types);

@@ -37,6 +37,59 @@
 	let threadReplies: EntityDetail[] = $state([]);
 	let localBody = $state('');
 	let actionMenuOpen = $state(false);
+	// The action menu used to be `position: absolute` inside the
+	// detail panel header, which sits under three nested overflow
+	// contexts (workspace grid → aside → panel root with overflow-auto).
+	// That clipped the dropdown so items at the bottom were unreachable
+	// and the menu visually rendered behind the list column header.
+	// Switch to `position: fixed` with coordinates computed from the
+	// button's bounding rect so it escapes every clipping ancestor.
+	let menuButton: HTMLButtonElement | null = $state(null);
+	let menuPos: { top: number; right: number } = $state({ top: 0, right: 0 });
+
+	function openActionMenu() {
+		if (actionMenuOpen) {
+			actionMenuOpen = false;
+			return;
+		}
+		if (menuButton) {
+			const r = menuButton.getBoundingClientRect();
+			menuPos = { top: r.bottom + 4, right: window.innerWidth - r.right };
+		}
+		actionMenuOpen = true;
+	}
+
+	// Close the menu on outside clicks, Escape, scroll, or resize so
+	// it can't end up stranded after the page state shifts under it.
+	$effect(() => {
+		if (!actionMenuOpen) return;
+		function onDocClick(e: MouseEvent) {
+			const target = e.target as Node;
+			if (menuButton?.contains(target)) return;
+			// Defer so the same click that opened it doesn't immediately close it.
+			actionMenuOpen = false;
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') actionMenuOpen = false;
+		}
+		function onScrollOrResize() {
+			actionMenuOpen = false;
+		}
+		// Wait one tick so the click that opened doesn't fire on this listener.
+		const id = window.setTimeout(() => {
+			window.addEventListener('click', onDocClick);
+		}, 0);
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('resize', onScrollOrResize);
+		window.addEventListener('scroll', onScrollOrResize, true);
+		return () => {
+			window.clearTimeout(id);
+			window.removeEventListener('click', onDocClick);
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('resize', onScrollOrResize);
+			window.removeEventListener('scroll', onScrollOrResize, true);
+		};
+	});
 
 	function entityPath(): string | null {
 		if (detail.path) return detail.path;
@@ -266,35 +319,23 @@
 	<header class="flex items-start gap-3 border-b border-[var(--color-border)] p-4">
 		<div class="min-w-0 flex-1">
 			<h2 class="truncate text-lg font-semibold">{detail.entity.name as string}</h2>
-			<div class="mt-1 truncate text-xs text-[var(--color-muted)]">{detail.file_id}</div>
+			<code class="mt-1 block truncate text-xs text-[var(--color-muted)]">{detail.file_id}</code>
 		</div>
 		{#if onFocus}
 			<button class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-xs hover:bg-white/10" onclick={onFocus}>
 				{focusMode ? 'Exit focus' : 'Focus'}
 			</button>
 		{/if}
-		<div class="relative">
-			<button
-				class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
-				aria-label="More actions"
-				onclick={() => (actionMenuOpen = !actionMenuOpen)}
-			>
-				...
-			</button>
-			{#if actionMenuOpen}
-				<div class="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-xs shadow-xl">
-					<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={revealEntityFile}>
-						Show in file manager
-					</button>
-					<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={cloneEntityFile}>
-						Clone to folder
-					</button>
-					<button class="block w-full px-3 py-2 text-left text-[var(--color-bad)] hover:bg-red-900/30" onclick={deleteEntityFile}>
-						Delete
-					</button>
-				</div>
-			{/if}
-		</div>
+		<button
+			bind:this={menuButton}
+			class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
+			aria-label="More actions"
+			aria-haspopup="menu"
+			aria-expanded={actionMenuOpen}
+			onclick={openActionMenu}
+		>
+			...
+		</button>
 	</header>
 
 	<div class="flex flex-wrap gap-2 border-b border-[var(--color-border)] px-4 py-3 text-xs">
@@ -523,3 +564,25 @@
 		</div>
 	{/if}
 </div>
+
+{#if actionMenuOpen}
+	<!-- Rendered outside the panel body and positioned `fixed` so the
+		 nested overflow contexts (workspace grid, aside, panel scroll
+		 region) can't clip it the way they did with the previous
+		 `absolute` placement. -->
+	<div
+		role="menu"
+		class="fixed z-50 w-44 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-xs shadow-xl"
+		style="top: {menuPos.top}px; right: {menuPos.right}px"
+	>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={revealEntityFile}>
+			Show in file manager
+		</button>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={cloneEntityFile}>
+			Clone to folder
+		</button>
+		<button class="block w-full px-3 py-2 text-left text-[var(--color-bad)] hover:bg-red-900/30" onclick={deleteEntityFile}>
+			Delete
+		</button>
+	</div>
+{/if}
