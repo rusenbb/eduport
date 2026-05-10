@@ -22,6 +22,18 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      # eduport-core depends on vaultdb-core via a relative path
+      # (../../../../researches/vaultdb/crates/vaultdb-core). On
+      # CI the runner only has the eduport tree by default, so we
+      # clone vaultdb side-by-side at the path the dep expects.
+      # Once vaultdb-core v1.0.0 is on crates.io, the `path +
+      # version` dep falls back to the registry automatically and
+      # this manual side-by-side step can go.
+      - name: Checkout vaultdb side-by-side
+        run: |
+          mkdir -p ../researches
+          git clone --depth 1 https://github.com/rusenbb/vaultdb.git \
+            ../researches/vaultdb
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -33,21 +45,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo fmt --all -- --check
 
-  publish-dry-run:
-    name: eduport-core publish dry-run
-    runs-on: ubuntu-22.04
-    needs: rust
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # `cargo package --no-verify` validates the manifest shape
-      # without the verify-compile step (which would try to resolve
-      # vaultdb-core from crates.io and fail until vaultdb-core is
-      # actually published). After vaultdb-core lands on the
-      # registry, drop `--no-verify` to also catch dep-resolution
-      # bugs at CI time instead of release time.
-      - run: cargo package --no-verify --allow-dirty -p eduport-core
+  # The eduport-core publish dry-run is intentionally not part of
+  # CI yet. `cargo package` strips path-deps and resolves them
+  # via the registry, so until vaultdb-core v1.0.0 is on
+  # crates.io the dry-run can't succeed. Once vaultdb-core is
+  # published, add a `publish-dry-run` job here that runs
+  # `cargo publish --dry-run -p eduport-core`.
 
   frontend:
     name: svelte-check + vitest
