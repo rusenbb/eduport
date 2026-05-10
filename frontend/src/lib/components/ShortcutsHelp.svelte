@@ -16,6 +16,7 @@
 				{ keys: ['mod', 'K'], label: 'Search across everything' },
 				{ keys: ['mod', 'N'], label: 'New entity (in the current type)' },
 				{ keys: ['mod', ','], label: 'Open Settings' },
+				{ keys: ['mod', '\\'], label: 'Toggle sidebar' },
 				{ keys: ['?'], label: 'Show this help' },
 				{ keys: ['esc'], label: 'Close any open dialog' }
 			]

@@ -21,6 +21,27 @@
 
 	let paletteOpen = $state(false);
 	let helpOpen = $state(false);
+	// Sidebar collapse state — persisted across reloads via
+	// localStorage so the user's pick survives a refresh.
+	let sidebarCollapsed = $state(false);
+	if (typeof window !== 'undefined') {
+		try {
+			sidebarCollapsed = window.localStorage.getItem('eduport:sidebar-collapsed') === '1';
+		} catch {
+			/* private mode etc. */
+		}
+	}
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(
+				'eduport:sidebar-collapsed',
+				sidebarCollapsed ? '1' : '0'
+			);
+		} catch {
+			/* ignore */
+		}
+	});
 	let droppedEmail:
 		| {
 				frontmatter: Record<string, unknown>;
@@ -70,6 +91,13 @@
 		if ((event.metaKey || event.ctrlKey) && event.key === ',') {
 			event.preventDefault();
 			void import('$app/navigation').then(({ goto }) => goto('/settings'));
+			return;
+		}
+		// Cmd/Ctrl+\ — toggle sidebar. Useful at narrow widths or
+		// when the user wants more horizontal room for the workspace.
+		if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
+			event.preventDefault();
+			sidebarCollapsed = !sidebarCollapsed;
 			return;
 		}
 	}
@@ -139,9 +167,17 @@
 	</div>
 {:else}
 	<div class="flex h-screen w-screen overflow-hidden">
-		<Sidebar />
+		{#if !sidebarCollapsed}
+			<Sidebar />
+		{/if}
 		<div class="flex flex-1 flex-col overflow-hidden">
-			<TopBar onSearch={openPalette} onHelp={() => (helpOpen = true)} newAction={$newAction ?? undefined} />
+			<TopBar
+				onSearch={openPalette}
+				onHelp={() => (helpOpen = true)}
+				onToggleSidebar={() => (sidebarCollapsed = !sidebarCollapsed)}
+				sidebarCollapsed={sidebarCollapsed}
+				newAction={$newAction ?? undefined}
+			/>
 			<FilterChips />
 			<div class="flex-1 overflow-auto">
 				{@render children()}

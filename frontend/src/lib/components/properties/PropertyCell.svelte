@@ -103,7 +103,7 @@
 				<PropertyEditor prop={column.prop} bind:value={draft} />
 			</div>
 			<button
-				class="rounded border border-blue-700 bg-blue-600 px-1.5 py-0.5 text-[10px] text-white"
+				class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
 				onclick={(e) => {
 					e.stopPropagation();
 					onSave(draft);

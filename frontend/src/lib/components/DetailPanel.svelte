@@ -415,7 +415,7 @@
 						<div class="flex flex-shrink-0 gap-1 text-[10px]">
 							{#if editingKey === prop.key}
 								<button
-									class="rounded border border-blue-700 bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
+									class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
 									onclick={commitEdit}
 								>
 									Save

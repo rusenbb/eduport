@@ -5,18 +5,36 @@
 	let {
 		onSearch,
 		onHelp,
+		onToggleSidebar,
+		sidebarCollapsed = false,
 		newAction
 	}: {
 		onSearch?: () => void;
 		onHelp?: () => void;
+		onToggleSidebar?: () => void;
+		sidebarCollapsed?: boolean;
 		newAction?: { label: string; onClick: () => void };
 	} = $props();
 
 	const searchHint = formatShortcut(['mod', 'K']);
 	const newHint = formatShortcut(['mod', 'N']);
+	const sidebarHint = formatShortcut(['mod', '\\']);
 </script>
 
 <div class="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-2">
+	{#if onToggleSidebar}
+		<button
+			onclick={onToggleSidebar}
+			class="rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-2 py-1.5 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+			title={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar (${sidebarHint})`}
+			aria-label="Toggle sidebar"
+		>
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<rect x="3" y="3" width="18" height="18" rx="2" />
+				<line x1="9" y1="3" x2="9" y2="21" />
+			</svg>
+		</button>
+	{/if}
 	<button
 		onclick={onSearch}
 		class="flex flex-1 items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-1.5 text-left text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)]"

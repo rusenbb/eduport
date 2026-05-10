@@ -161,7 +161,7 @@
 				Create one university, one program, and one application to see links, deadlines, and checkboxes in context.
 			</p>
 			<button
-				class="mt-5 rounded border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+				class="mt-5 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-4 py-2 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-50"
 				disabled={seeding}
 				onclick={seed}
 			>
