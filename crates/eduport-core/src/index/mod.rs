@@ -36,8 +36,8 @@ pub mod schema;
 pub mod writer;
 
 pub use reader::{
-    EntitySummary, PropertyValueCount, SearchHit, filter_entities_by_properties, list_entities,
-    property_value_counts, search_fts,
+    EntitySummary, PropertyFilter, PropertyValueCount, SearchHit,
+    filter_entities_by_properties, list_entities, property_value_counts, search_fts,
 };
 pub use reconcile::{ReconcileSummary, reconcile};
 pub use schema::{INDEX_SCHEMA_VERSION, InitOutcome, init_schema};

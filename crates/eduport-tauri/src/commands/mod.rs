@@ -23,8 +23,15 @@
 //! Python sidecar emitted as JSON via FastAPI's exception
 //! handlers.
 
+pub mod checkbox;
+pub mod eml;
 pub mod entity;
+pub mod properties;
 pub mod schema;
+pub mod search;
+pub mod settings;
+pub mod status;
+pub mod trash;
 pub mod view;
 
 use serde::Serialize;
