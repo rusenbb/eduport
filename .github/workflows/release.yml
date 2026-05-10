@@ -91,7 +91,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p release-assets
-          BUNDLE=crates/eduport-tauri/target/release/bundle
+          BUNDLE=target/release/bundle
           cp $BUNDLE/deb/*.deb release-assets/ 2>/dev/null || true
           cp $BUNDLE/rpm/*.rpm release-assets/ 2>/dev/null || true
           cp $BUNDLE/appimage/*.AppImage release-assets/ 2>/dev/null || true
@@ -101,7 +101,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p release-assets
-          BUNDLE=crates/eduport-tauri/target/release/bundle
+          BUNDLE=target/release/bundle
           cp $BUNDLE/dmg/*.dmg release-assets/ 2>/dev/null || true
           # zip the .app bundle so it survives transit through GitHub's CDN
           if [ -d $BUNDLE/macos ]; then
@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          BUNDLE=crates/eduport-tauri/target/release/bundle
+          BUNDLE=target/release/bundle
           cp $BUNDLE/msi/*.msi release-assets/ 2>/dev/null || true
           cp $BUNDLE/nsis/*-setup.exe release-assets/ 2>/dev/null || true
           ls -la release-assets/

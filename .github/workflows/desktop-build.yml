@@ -70,8 +70,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eduport-${{ runner.os }}
-          # Bundle path moved under crates/eduport-tauri/ when the
-          # workspace was reorganised in rewrite phase 4.
+          # Cargo writes the workspace target dir at the workspace
+          # root, so `tauri build` lands bundles at
+          # target/release/bundle/, not under the crate's own dir.
           path: |
-            crates/eduport-tauri/target/release/bundle/**/*
+            target/release/bundle/**/*
           if-no-files-found: error
