@@ -35,7 +35,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use eduport_core::entity::store::FolderMap;
 use eduport_core::entity::EntityStore;
 use eduport_core::index::{self, Index};
 use eduport_core::schema::SchemaStore;
@@ -98,9 +97,10 @@ pub fn build_state(
     }
 
     // The vault root is the data folder. EntityStore owns the Vault.
+    // Entity files live flat at the root, discriminated by their
+    // `eduport-type/<value>` tag — no per-type subfolders.
     let vault = Vault::with_root(data_folder.clone());
-    let folder_map = build_folder_map(settings);
-    let entity_store = EntityStore::new(vault).with_folder_map(folder_map.clone());
+    let entity_store = EntityStore::new(vault);
     let schema_store = SchemaStore::new(data_folder.clone());
     let view_store = ViewStore::new(data_folder.clone());
 
@@ -126,7 +126,7 @@ pub fn build_state(
         watcher: Mutex::new(None),
     });
 
-    start_watcher(&state, &folder_map, app_handle.clone())?;
+    start_watcher(&state, app_handle.clone())?;
 
     Ok(state)
 }
@@ -137,21 +137,15 @@ pub fn build_state(
 /// looking at the Rust types.
 fn start_watcher(
     state: &Arc<EduportState>,
-    folder_map: &FolderMap,
     app_handle: tauri::AppHandle,
 ) -> Result<(), BootError> {
     let state_for_callback = Arc::clone(state);
-    let watcher = Watcher::start(
-        &state.data_folder,
-        folder_map,
-        DEFAULT_DEBOUNCE,
-        move |event| {
-            // The watcher's worker thread is hot — keep this cheap.
-            // We do *just enough* to keep the index in sync, then
-            // emit a Tauri event so the frontend can refresh.
-            handle_watcher_event(&state_for_callback, &app_handle, event);
-        },
-    )?;
+    let watcher = Watcher::start(&state.data_folder, DEFAULT_DEBOUNCE, move |event| {
+        // The watcher's worker thread is hot — keep this cheap.
+        // We do *just enough* to keep the index in sync, then
+        // emit a Tauri event so the frontend can refresh.
+        handle_watcher_event(&state_for_callback, &app_handle, event);
+    })?;
     *state.watcher.lock().expect("watcher mutex poisoned") = Some(watcher);
     Ok(())
 }
@@ -166,14 +160,12 @@ fn handle_watcher_event(
     };
 
     match &event {
-        VaultEvent::EntityChanged {
-            kind,
-            path,
-            file_id,
-        } => {
+        VaultEvent::EntityChanged { path, file_id } => {
             // Try to read+parse the file and upsert. On failure,
             // record a parse error and let the frontend surface it.
-            let parse_result = read_and_parse(path, *kind);
+            // Type is derived from the file's frontmatter tag — the
+            // watcher itself is type-agnostic.
+            let parse_result = read_and_parse(path);
             let mtime_ns = path
                 .metadata()
                 .ok()
@@ -247,23 +239,16 @@ fn handle_watcher_event(
 fn event_payload(event: &VaultEvent) -> serde_json::Value {
     use serde_json::json;
     match event {
-        VaultEvent::EntityChanged {
-            kind,
-            file_id,
-            path,
-        } => json!({
+        // Type is no longer carried by the watcher event — the
+        // file's `eduport-type/<value>` tag is the source of truth
+        // and the consumer (or the index) looks it up.
+        VaultEvent::EntityChanged { file_id, path } => json!({
             "kind": "entity_changed",
-            "entity_type": kind.as_str(),
             "file_id": file_id,
             "path": path.to_string_lossy(),
         }),
-        VaultEvent::EntityDeleted {
-            kind,
-            file_id,
-            path,
-        } => json!({
+        VaultEvent::EntityDeleted { file_id, path } => json!({
             "kind": "entity_deleted",
-            "entity_type": kind.as_str(),
             "file_id": file_id,
             "path": path.to_string_lossy(),
         }),
@@ -273,21 +258,11 @@ fn event_payload(event: &VaultEvent) -> serde_json::Value {
     }
 }
 
-fn read_and_parse(
-    path: &Path,
-    expected_kind: eduport_core::EntityType,
-) -> Result<(eduport_core::entity::Entity, String), String> {
+fn read_and_parse(path: &Path) -> Result<(eduport_core::entity::Entity, String), String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("read failed: {e}"))?;
     let (yaml, body) = split_frontmatter(&raw)
         .ok_or_else(|| "missing or malformed `---` frontmatter delimiters".to_string())?;
     let entity = eduport_core::entity::Entity::from_yaml(yaml)?;
-    if entity.entity_type() != expected_kind {
-        return Err(format!(
-            "entity type {} does not match folder kind {}",
-            entity.entity_type(),
-            expected_kind
-        ));
-    }
     Ok((entity, body.to_string()))
 }
 
@@ -297,19 +272,6 @@ fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
     let yaml = &trimmed[..close];
     let body = &trimmed[close + "\n---\n".len()..];
     Some((yaml, body))
-}
-
-/// Build a [`FolderMap`] from settings. Eduport historically lets
-/// the user override the per-type folder names; this respects those
-/// overrides when present, otherwise falls back to the default
-/// mapping (which matches every default vault out there).
-fn build_folder_map(_settings: &Settings) -> FolderMap {
-    // The current `Settings` struct doesn't yet expose per-type
-    // folder overrides — those live in the Tauri-side bootstrap
-    // settings (notes_folder / attachments_folder). For now we use
-    // the FolderMap default; once the settings shape is unified
-    // (Phase 10 work item) this routes through.
-    FolderMap::default()
 }
 
 // ── Helpers used by command handlers ──────────────────────────────

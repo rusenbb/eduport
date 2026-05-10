@@ -370,10 +370,14 @@ fn derive_file_id_for_entity(
     entity: &eduport_core::entity::Entity,
     kind: EntityType,
 ) -> Option<String> {
-    let folder = state.data_folder.join(state.entity_store.folder_for(kind));
-    let entries = std::fs::read_dir(&folder).ok()?;
+    // Entity files live flat at the vault root; walk it
+    // non-recursively and match on the loaded entity's name.
+    let entries = std::fs::read_dir(&state.data_folder).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
+        if path.is_dir() {
+            continue;
+        }
         if path.extension().and_then(|s| s.to_str()) != Some("md") {
             continue;
         }

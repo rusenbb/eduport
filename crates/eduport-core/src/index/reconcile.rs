@@ -6,6 +6,15 @@
 //! straight to the vault, manual `cp` operations, restoring from
 //! backup). The watcher (Phase 8) handles the steady-state
 //! incremental updates.
+//!
+//! ## Layout
+//!
+//! Reconcile walks the vault root **non-recursively**. Every
+//! entity file sits at the root; subfolders are user-managed
+//! Obsidian content (general notes, attachments) that this layer
+//! intentionally ignores even when they contain `.md` files.
+//! Type discrimination comes from each file's
+//! `eduport-type/<value>` tag — *not* its location.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -13,7 +22,6 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::entity::{Entity, EntityStore};
-use crate::entity_type::EntityType;
 use crate::schema::Schema;
 
 use super::IndexError;
@@ -38,8 +46,8 @@ pub struct ReconcileSummary {
 
 /// Bring the index up to date with the on-disk vault state.
 ///
-/// Walks every entity folder in `store` (one folder per [`EntityType`]),
-/// stat-checks each `.md` file, and:
+/// Walks the vault root non-recursively, stat-checks each `.md`
+/// file, and:
 ///
 /// - Skips files whose `mtime_ns` matches the cached value (fast path).
 /// - Re-parses changed files and re-upserts them.
@@ -69,18 +77,7 @@ pub fn reconcile(
     };
 
     let mut seen: HashSet<String> = HashSet::new();
-
-    for kind in EntityType::ALL {
-        walk_kind(
-            conn,
-            store,
-            kind,
-            schema,
-            &existing,
-            &mut seen,
-            &mut summary,
-        )?;
-    }
+    walk_root(conn, store, schema, &existing, &mut seen, &mut summary)?;
 
     // Anything in `existing` that we didn't see on disk is gone.
     for file_id in existing.keys() {
@@ -93,30 +90,19 @@ pub fn reconcile(
     Ok(summary)
 }
 
-/// Walk one entity-type folder and update the index. Factored out so
-/// the per-kind logic is testable and so the outer function stays
-/// readable.
-fn walk_kind(
+/// Walk the vault root non-recursively, updating the index for
+/// every `.md` file whose mtime has moved. Files in subdirectories
+/// are intentionally skipped — see the module-level doc.
+fn walk_root(
     conn: &Connection,
     store: &EntityStore,
-    kind: EntityType,
     schema: Option<&Schema>,
     existing: &HashMap<String, i64>,
     seen: &mut HashSet<String>,
     summary: &mut ReconcileSummary,
 ) -> Result<(), IndexError> {
-    let folder_name = store.folder_for(kind).to_string();
-    let vault = store.vault();
-    // resolve_folder errors when the folder is missing, which is a
-    // legitimate "this entity type has never been used" state. Map
-    // the error to "no files for this kind" rather than failing the
-    // whole reconcile.
-    let folder_path = match vault.resolve_folder(&folder_name) {
-        Ok(p) => p,
-        Err(_) => return Ok(()),
-    };
-
-    let entries = match std::fs::read_dir(&folder_path) {
+    let root = &store.vault().root;
+    let entries = match std::fs::read_dir(root) {
         Ok(it) => it,
         Err(_) => return Ok(()),
     };
@@ -127,6 +113,14 @@ fn walk_kind(
             Err(_) => continue,
         };
         let path = entry.path();
+
+        // Skip subdirectories outright. Symlinks-to-files are
+        // followed because they could be a sync tool's
+        // implementation detail; subdir traversal is what we want
+        // to avoid.
+        if path.is_dir() {
+            continue;
+        }
         if path.extension().and_then(|s| s.to_str()) != Some("md") {
             continue;
         }
@@ -155,7 +149,7 @@ fn walk_kind(
             continue;
         }
 
-        match load_entity_at(&path, kind, store) {
+        match load_entity_at(&path) {
             LoadResult::Ok { entity, body } => {
                 upsert_entity(conn, &file_id, &path, mtime_ns, &entity, &body, schema)?;
                 clear_parse_error(conn, &path.to_string_lossy())?;
@@ -174,23 +168,18 @@ fn walk_kind(
     Ok(())
 }
 
-/// Result of loading a single file off disk during reconcile. The
-/// `Ok` variant boxes its `Entity` because the enum's variants would
-/// otherwise sit at the size of the largest entity struct (Person /
-/// Application carry several optional fields and links), inflating
-/// every `LoadResult` slot by hundreds of bytes for the
-/// `ParseError` case. Boxing keeps the size flat at one pointer +
-/// discriminant.
+/// Result of loading a single file off disk during reconcile.
+/// `Ok` boxes its `Entity` so the enum size stays at one pointer
+/// + discriminant regardless of the variant's payload.
 enum LoadResult {
     Ok { entity: Box<Entity>, body: String },
     ParseError(String),
 }
 
 /// Read one file off disk and split it into (frontmatter→Entity, body).
-/// Uses the entity store so we get the same parsing path the rest of
-/// eduport-core uses — the SQL index never sees a record that
-/// `EntityStore` wouldn't also see.
-fn load_entity_at(path: &Path, kind: EntityType, store: &EntityStore) -> LoadResult {
+/// Type is taken from the file's `eduport-type/<value>` tag inside
+/// `Entity::from_yaml`; we don't need to know the type up front.
+fn load_entity_at(path: &Path) -> LoadResult {
     let raw = match std::fs::read_to_string(path) {
         Ok(r) => r,
         Err(e) => return LoadResult::ParseError(format!("read failed: {e}")),
@@ -210,20 +199,6 @@ fn load_entity_at(path: &Path, kind: EntityType, store: &EntityStore) -> LoadRes
         Err(reason) => return LoadResult::ParseError(reason),
     };
 
-    if entity.entity_type() != kind {
-        return LoadResult::ParseError(format!(
-            "entity type {:?} does not match folder kind {:?}",
-            entity.entity_type(),
-            kind
-        ));
-    }
-
-    // Make sure the file actually lives in the store's folder for its
-    // kind — this catches the rare case where someone moved a file
-    // under a different folder without re-tagging it. We don't fail
-    // here, just defensive — `walk_kind` already constrains us.
-    let _ = store; // currently unused, kept in the signature for future use
-
     LoadResult::Ok {
         entity: Box::new(entity),
         body: body.to_string(),
@@ -233,10 +208,6 @@ fn load_entity_at(path: &Path, kind: EntityType, store: &EntityStore) -> LoadRes
 /// Strip a `---\nYAML\n---\n` frontmatter block from the head of `raw`
 /// and return `(yaml_block, body)`. Returns `None` when the file
 /// doesn't have a frontmatter prefix at all.
-///
-/// Mirrors the parser used elsewhere in the crate. Kept lightweight
-/// — anything more elaborate belongs in vaultdb-core's frontmatter
-/// module, which we already use for `EntityStore::list_by_kind`.
 fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
     let trimmed = raw.strip_prefix("---\n")?;
     let close = trimmed.find("\n---\n")?;
@@ -249,12 +220,11 @@ fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
 mod tests {
     use super::super::Index;
     use super::*;
-    use crate::entity::{EntityStore, Note};
     use std::fs;
     use tempfile::TempDir;
 
-    fn write_note_file(folder: &Path, stem: &str, name: &str, body: &str) {
-        let path = folder.join(format!("{stem}.md"));
+    fn write_entity_at_root(root: &Path, stem: &str, name: &str, body: &str) {
+        let path = root.join(format!("{stem}.md"));
         let yaml = format!("---\nname: {name}\ntags:\n  - eduport-type/note\n---\n{body}");
         fs::write(&path, yaml).unwrap();
     }
@@ -262,21 +232,13 @@ mod tests {
     fn setup_vault() -> (TempDir, EntityStore) {
         let tmp = TempDir::new().unwrap();
         let store = EntityStore::new(vaultdb_core::Vault::with_root(tmp.path().to_path_buf()));
-        for kind in EntityType::ALL {
-            // Pre-create every entity folder so reconcile's
-            // `resolve_folder` succeeds even on the empty-vault path.
-            std::fs::create_dir_all(tmp.path().join(store.folder_for(kind))).unwrap();
-        }
         (tmp, store)
     }
 
     #[test]
     fn reconcile_picks_up_new_file() {
         let (tmp, store) = setup_vault();
-        let folder = tmp.path().join(store.folder_for(EntityType::Note));
-        write_note_file(&folder, "hello", "Hello", "world");
-        // Note: passing along an in-memory index — this is the same
-        // pattern the watcher will use.
+        write_entity_at_root(tmp.path(), "hello", "Hello", "world");
         let index = Index::open_in_memory().unwrap();
         let summary = reconcile(index.conn(), &store, None).unwrap();
         assert_eq!(summary.added, 1);
@@ -294,21 +256,18 @@ mod tests {
     #[test]
     fn reconcile_detects_modified_file() {
         let (tmp, store) = setup_vault();
-        let folder = tmp.path().join(store.folder_for(EntityType::Note));
-        write_note_file(&folder, "a", "A", "v1");
+        write_entity_at_root(tmp.path(), "a", "A", "v1");
         let index = Index::open_in_memory().unwrap();
         reconcile(index.conn(), &store, None).unwrap();
 
-        // Manually flip the cached mtime to a value we know is *less*
-        // than whatever the OS just wrote, so reconcile's mtime
-        // compare goes "different → update" deterministically. This
-        // avoids racing on filesystem mtime granularity (some FS
-        // round to the second).
+        // Force a deterministic "different mtime" by rolling the
+        // cached value back to zero — sidesteps filesystem mtime
+        // granularity (some FS round to the second).
         index
             .conn()
             .execute("UPDATE entities SET mtime_ns = 0 WHERE file_id = 'a'", [])
             .unwrap();
-        write_note_file(&folder, "a", "A v2", "v2");
+        write_entity_at_root(tmp.path(), "a", "A v2", "v2");
 
         let summary = reconcile(index.conn(), &store, None).unwrap();
         assert_eq!(summary.updated, 1, "stale mtime must trigger an update");
@@ -324,11 +283,10 @@ mod tests {
     #[test]
     fn reconcile_removes_deleted_file() {
         let (tmp, store) = setup_vault();
-        let folder = tmp.path().join(store.folder_for(EntityType::Note));
-        write_note_file(&folder, "gone", "Gone", "");
+        write_entity_at_root(tmp.path(), "gone", "Gone", "");
         let index = Index::open_in_memory().unwrap();
         reconcile(index.conn(), &store, None).unwrap();
-        std::fs::remove_file(folder.join("gone.md")).unwrap();
+        std::fs::remove_file(tmp.path().join("gone.md")).unwrap();
         let summary = reconcile(index.conn(), &store, None).unwrap();
         assert_eq!(summary.removed, 1);
         let count: i64 = index
@@ -341,9 +299,7 @@ mod tests {
     #[test]
     fn reconcile_records_parse_error_for_bad_frontmatter() {
         let (tmp, store) = setup_vault();
-        let folder = tmp.path().join(store.folder_for(EntityType::Note));
-        let path = folder.join("bad.md");
-        std::fs::write(&path, "no frontmatter here").unwrap();
+        std::fs::write(tmp.path().join("bad.md"), "no frontmatter here").unwrap();
         let index = Index::open_in_memory().unwrap();
         let summary = reconcile(index.conn(), &store, None).unwrap();
         assert_eq!(summary.errors, 1);
@@ -357,17 +313,33 @@ mod tests {
     #[test]
     fn reconcile_skips_dot_files_and_non_md() {
         let (tmp, store) = setup_vault();
-        let folder = tmp.path().join(store.folder_for(EntityType::Note));
-        std::fs::write(folder.join(".hidden.md"), "anything").unwrap();
-        std::fs::write(folder.join("readme.txt"), "anything").unwrap();
+        std::fs::write(tmp.path().join(".hidden.md"), "anything").unwrap();
+        std::fs::write(tmp.path().join("readme.txt"), "anything").unwrap();
         let index = Index::open_in_memory().unwrap();
         let summary = reconcile(index.conn(), &store, None).unwrap();
         assert_eq!(summary.added, 0);
         assert_eq!(summary.errors, 0);
     }
 
-    // Silence the unused Note import — kept above for future test
-    // helpers.
-    #[allow(dead_code)]
-    fn _force_use(_: Note) {}
+    #[test]
+    fn reconcile_ignores_subfolder_md_files() {
+        // The user's vault often has scratch markdown in
+        // subfolders (general notes, attachments). Reconcile must
+        // not pick those up — they're not entities.
+        let (tmp, store) = setup_vault();
+        fs::create_dir(tmp.path().join("notes")).unwrap();
+        std::fs::write(
+            tmp.path().join("notes/scratch.md"),
+            "---\nname: Scratch\ntags:\n  - eduport-type/note\n---\n",
+        )
+        .unwrap();
+        let index = Index::open_in_memory().unwrap();
+        let summary = reconcile(index.conn(), &store, None).unwrap();
+        assert_eq!(summary.added, 0);
+        let count: i64 = index
+            .conn()
+            .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
 }

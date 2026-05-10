@@ -168,21 +168,22 @@ fn trash_path_for(data_folder: &Path, name: &str) -> Result<PathBuf, CommandErro
     Ok(candidate)
 }
 
-/// Read the trashed file, look up its `eduport-type/<value>` tag,
-/// and return the path it would land at on restore. Returns `None`
-/// when the file can't be parsed or the tag is missing — restore
-/// then errors with a `invalid` code so the frontend can present a
-/// meaningful message.
+/// Compute the path a trashed file would land at on restore.
+/// All entities live flat at the vault root, so the destination
+/// is simply `<data_folder>/<stem>.md`. We still parse the
+/// frontmatter to verify the file *is* an eduport entity — a
+/// stray non-entity .md that wandered into `.trash/` shouldn't
+/// restore.
 fn infer_original_path(state: &crate::core_state::EduportState, trashed: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(trashed).ok()?;
     let trimmed = raw.strip_prefix("---\n")?;
     let close = trimmed.find("\n---\n")?;
     let yaml = &trimmed[..close];
-    let entity = Entity::from_yaml(yaml).ok()?;
-    let kind = entity.entity_type();
-    let folder = state.entity_store.folder_for(kind);
+    // Parse purely as a validity check — the entity type tag must
+    // be present for this to be a real eduport entity.
+    let _entity = Entity::from_yaml(yaml).ok()?;
     let stem = trashed.file_stem()?.to_str()?;
-    Some(state.data_folder.join(folder).join(format!("{stem}.md")))
+    Some(state.data_folder.join(format!("{stem}.md")))
 }
 
 /// Format a Unix timestamp as ISO-8601 in UTC. We avoid pulling in

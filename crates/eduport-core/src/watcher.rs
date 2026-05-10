@@ -18,6 +18,15 @@
 //! each path into one of the [`VaultEvent`] variants. The consumer
 //! decides what to do with each event (re-parse, delete, reindex).
 //!
+//! ## Layout assumption
+//!
+//! All eduport entities live as `.md` files directly at the vault
+//! root. Type comes from each file's `eduport-type/<value>` tag,
+//! not its folder. The watcher therefore watches the root
+//! non-recursively (plus the `.eduport/` config folder) and never
+//! emits events for files inside other subdirectories — those are
+//! the user's own Obsidian content and not entities.
+//!
 //! ## Self-write filtering
 //!
 //! When eduport itself writes a file (via [`crate::EntityStore`]), the
@@ -42,8 +51,6 @@ use notify_debouncer_full::{
     DebounceEventResult, Debouncer, RecommendedCache, new_debouncer, notify::RecommendedWatcher,
 };
 
-use crate::EntityType;
-use crate::entity::store::FolderMap;
 use crate::schema::store::SCHEMA_FILENAME;
 use crate::view::store::VIEWS_FILENAME;
 
@@ -65,17 +72,16 @@ pub const SELF_WRITE_WINDOW: Duration = Duration::from_secs(5);
 
 /// Typed event the watcher hands to its callback.
 ///
-/// The watcher does no parsing — it only classifies paths into one
-/// of these variants. The consumer (eduport-tauri / index writer)
-/// is responsible for parsing the file via [`crate::EntityStore`]
-/// and updating the index.
+/// The watcher does no parsing — it only classifies paths. Type
+/// discrimination (which kind of entity changed) happens in the
+/// consumer, which parses the file's frontmatter for
+/// `EntityChanged` and looks up the previously-recorded kind for
+/// `EntityDeleted` (the file is gone by then).
 #[derive(Debug, Clone, PartialEq)]
 pub enum VaultEvent {
-    /// An entity `.md` file under one of the entity-type folders was
-    /// created or modified. Indexers should re-parse and upsert.
+    /// An entity `.md` file at the vault root was created or
+    /// modified. Indexers should re-parse and upsert.
     EntityChanged {
-        /// Which entity-type folder the file lives in.
-        kind: EntityType,
         /// Absolute path to the file as observed.
         path: PathBuf,
         /// Filename stem (the canonical file_id everywhere in
@@ -83,13 +89,9 @@ pub enum VaultEvent {
         /// re-derive it.
         file_id: String,
     },
-    /// An entity `.md` file was deleted. Indexers should remove its
-    /// row by `file_id`.
-    EntityDeleted {
-        kind: EntityType,
-        path: PathBuf,
-        file_id: String,
-    },
+    /// An entity `.md` file at the vault root was deleted.
+    /// Indexers should remove its row by `file_id`.
+    EntityDeleted { path: PathBuf, file_id: String },
     /// `<vault>/.eduport/schema.yaml` was created or modified. The
     /// consumer should reload the schema and trigger a property
     /// re-index via [`crate::index::writer::reindex_all_properties`].
@@ -133,31 +135,23 @@ pub enum WatcherError {
 }
 
 impl Watcher {
-    /// Start watching every entity-type folder under `vault_root` and
-    /// the `.eduport/` config folder. Calls `on_event` for each
-    /// classified event after debouncing.
+    /// Start watching the vault root and the `.eduport/` config
+    /// folder. Calls `on_event` for each classified event after
+    /// debouncing.
     ///
     /// `on_event` runs on a background worker thread — keep it cheap.
     /// If you need to do heavy work, push the event onto a channel
     /// and process it on your own thread.
     pub fn start<F>(
         vault_root: &Path,
-        folder_map: &FolderMap,
         debounce: Duration,
         on_event: F,
     ) -> Result<Self, WatcherError>
     where
         F: Fn(VaultEvent) + Send + Sync + 'static,
     {
-        // Build a reverse map from absolute folder path → EntityType
-        // so the worker can classify a notify event in O(1).
-        let mut folder_to_kind: HashMap<PathBuf, EntityType> = HashMap::new();
-        for kind in EntityType::ALL {
-            let folder = vault_root.join(folder_map.folder_for(kind));
-            folder_to_kind.insert(folder, kind);
-        }
+        let vault_root_owned = vault_root.to_path_buf();
         let config_dir = vault_root.join(EDUPORT_CONFIG_DIR);
-        let folder_to_kind = Arc::new(folder_to_kind);
         let config_dir_owned = config_dir.clone();
 
         let self_writes: Arc<Mutex<HashMap<PathBuf, Instant>>> =
@@ -165,7 +159,6 @@ impl Watcher {
         let self_writes_for_worker = Arc::clone(&self_writes);
 
         let on_event = Arc::new(on_event);
-        let folder_to_kind_for_worker = Arc::clone(&folder_to_kind);
 
         let mut debouncer = new_debouncer(debounce, None, move |result: DebounceEventResult| {
             let events = match result {
@@ -188,12 +181,9 @@ impl Watcher {
                     continue;
                 }
                 for path in &ev.event.paths {
-                    if let Some(vault_event) = classify(
-                        path,
-                        ev.event.kind,
-                        &folder_to_kind_for_worker,
-                        &config_dir_owned,
-                    ) {
+                    if let Some(vault_event) =
+                        classify(path, ev.event.kind, &vault_root_owned, &config_dir_owned)
+                    {
                         // Self-write filter — drop the event if
                         // we wrote this path ourselves recently.
                         let mut w = self_writes_for_worker.lock().unwrap();
@@ -208,17 +198,12 @@ impl Watcher {
             }
         })?;
 
-        // Watch every entity-type folder. Each one's a sibling at the
-        // vault root; we don't recurse below the entity folder
-        // because eduport entity files live one level deep, never
-        // nested.
-        for kind in EntityType::ALL {
-            let folder = vault_root.join(folder_map.folder_for(kind));
-            // Folder may not exist yet (first-launch on an empty
-            // vault) — create it so the watcher attaches.
-            std::fs::create_dir_all(&folder)?;
-            debouncer.watch(&folder, RecursiveMode::NonRecursive)?;
-        }
+        // Watch the vault root non-recursively. Subfolders are
+        // intentionally NOT watched — they hold user-managed
+        // Obsidian content (general notes, attachments), not
+        // entities.
+        std::fs::create_dir_all(vault_root)?;
+        debouncer.watch(vault_root, RecursiveMode::NonRecursive)?;
 
         // Watch the config folder. Same belt-and-suspenders create-if-
         // missing — SchemaStore creates it on first save, but we
@@ -235,38 +220,32 @@ impl Watcher {
     /// Mark `path` as having been written by eduport itself. The
     /// next watcher event for this path within [`SELF_WRITE_WINDOW`]
     /// will be suppressed instead of forwarded to the callback.
-    ///
-    /// Call this *before* the write hits the disk (or as part of the
-    /// same sync block that performs the write) so the suppression
-    /// race is on our side: the event has to come after the entry
-    /// goes in.
     pub fn note_self_write(&self, path: &Path) {
         let mut writes = self.self_writes.lock().unwrap();
         writes.insert(path.to_path_buf(), Instant::now());
     }
 }
 
-/// Drop expired self-write entries. Called inline on each lookup so
-/// we don't need a cleanup thread; cost is amortised across event
-/// dispatches and stays O(N) in the active-write count (which is at
-/// most a handful at any instant).
+/// Drop expired self-write entries. Called inline on each lookup
+/// so we don't need a cleanup thread; cost is amortised across
+/// event dispatches and stays O(N) in the active-write count
+/// (which is at most a handful at any instant).
 fn sweep_expired(map: &mut HashMap<PathBuf, Instant>) {
     let now = Instant::now();
     map.retain(|_, t| now.duration_since(*t) < SELF_WRITE_WINDOW);
 }
 
 /// Classify a single (path, EventKind) pair into a [`VaultEvent`].
-/// Returns `None` for paths we don't care about (non-`.md` under an
-/// entity folder, files under `.eduport/` other than schema/views,
-/// hidden files, etc.).
+/// Returns `None` for paths we don't care about:
+/// - hidden files
+/// - non-markdown files outside `.eduport/`
+/// - any file whose parent is not the vault root or `.eduport/`
 fn classify(
     path: &Path,
     kind: EventKind,
-    folder_to_kind: &HashMap<PathBuf, EntityType>,
+    vault_root: &Path,
     config_dir: &Path,
 ) -> Option<VaultEvent> {
-    // Hidden files and non-markdown files in entity folders are not
-    // entities. The Python sidecar applied the same filter.
     let file_name = path.file_name()?.to_str()?;
     if file_name.starts_with('.') {
         return None;
@@ -284,22 +263,23 @@ fn classify(
         };
     }
 
+    // Only entity files at the vault root count. Markdown in
+    // subdirectories belongs to the user, not eduport.
+    if parent != vault_root {
+        return None;
+    }
     if path.extension().and_then(|s| s.to_str()) != Some("md") {
         return None;
     }
-
-    let entity_kind = folder_to_kind.get(parent).copied()?;
     let stem = path.file_stem()?.to_str()?.to_string();
 
     if is_remove(kind) {
         Some(VaultEvent::EntityDeleted {
-            kind: entity_kind,
             path: path.to_path_buf(),
             file_id: stem,
         })
     } else if is_create_or_modify(kind) {
         Some(VaultEvent::EntityChanged {
-            kind: entity_kind,
             path: path.to_path_buf(),
             file_id: stem,
         })
@@ -319,19 +299,14 @@ fn is_remove(kind: EventKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::store::FolderMap;
     use std::fs;
     use std::sync::mpsc;
     use tempfile::TempDir;
 
-    fn setup_vault() -> (TempDir, FolderMap) {
+    fn setup_vault() -> TempDir {
         let tmp = TempDir::new().unwrap();
-        let folder_map = FolderMap::default();
-        for kind in EntityType::ALL {
-            std::fs::create_dir_all(tmp.path().join(folder_map.folder_for(kind))).unwrap();
-        }
         std::fs::create_dir_all(tmp.path().join(EDUPORT_CONFIG_DIR)).unwrap();
-        (tmp, folder_map)
+        tmp
     }
 
     /// Wait for an event up to `dur`. Returns None on timeout.
@@ -340,49 +315,48 @@ mod tests {
     }
 
     #[test]
-    fn classify_entity_create_under_notes_folder() {
-        let (tmp, folder_map) = setup_vault();
-        let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        for kind in EntityType::ALL {
-            map.insert(tmp.path().join(folder_map.folder_for(kind)), kind);
-        }
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join("hello.md");
+    fn classify_entity_create_at_vault_root() {
+        let tmp = setup_vault();
+        let path = tmp.path().join("hello.md");
         let ev = classify(
             &path,
             EventKind::Create(notify::event::CreateKind::File),
-            &map,
+            tmp.path(),
             &tmp.path().join(EDUPORT_CONFIG_DIR),
         )
         .unwrap();
         match ev {
-            VaultEvent::EntityChanged { kind, file_id, .. } => {
-                assert_eq!(kind, EntityType::Note);
-                assert_eq!(file_id, "hello");
-            }
+            VaultEvent::EntityChanged { file_id, .. } => assert_eq!(file_id, "hello"),
             _ => panic!("expected EntityChanged"),
         }
     }
 
     #[test]
-    fn classify_skips_non_md_under_entity_folder() {
-        let (tmp, folder_map) = setup_vault();
-        let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(
-            tmp.path().join(folder_map.folder_for(EntityType::Note)),
-            EntityType::Note,
-        );
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join("README.txt");
+    fn classify_ignores_subfolder_md() {
+        let tmp = setup_vault();
+        let subdir = tmp.path().join("notes");
+        std::fs::create_dir(&subdir).unwrap();
+        let path = subdir.join("stray.md");
         assert!(
             classify(
                 &path,
                 EventKind::Create(notify::event::CreateKind::File),
-                &map,
+                tmp.path(),
+                &tmp.path().join(EDUPORT_CONFIG_DIR),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn classify_skips_non_md_at_root() {
+        let tmp = setup_vault();
+        let path = tmp.path().join("README.txt");
+        assert!(
+            classify(
+                &path,
+                EventKind::Create(notify::event::CreateKind::File),
+                tmp.path(),
                 &tmp.path().join(EDUPORT_CONFIG_DIR),
             )
             .is_none()
@@ -391,21 +365,13 @@ mod tests {
 
     #[test]
     fn classify_skips_hidden_files() {
-        let (tmp, folder_map) = setup_vault();
-        let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(
-            tmp.path().join(folder_map.folder_for(EntityType::Note)),
-            EntityType::Note,
-        );
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join(".swp");
+        let tmp = setup_vault();
+        let path = tmp.path().join(".swp");
         assert!(
             classify(
                 &path,
                 EventKind::Create(notify::event::CreateKind::File),
-                &map,
+                tmp.path(),
                 &tmp.path().join(EDUPORT_CONFIG_DIR),
             )
             .is_none()
@@ -414,8 +380,7 @@ mod tests {
 
     #[test]
     fn classify_schema_yaml_emits_schema_changed() {
-        let (tmp, _) = setup_vault();
-        let map: HashMap<PathBuf, EntityType> = HashMap::new();
+        let tmp = setup_vault();
         let config = tmp.path().join(EDUPORT_CONFIG_DIR);
         let path = config.join(SCHEMA_FILENAME);
         let ev = classify(
@@ -423,7 +388,7 @@ mod tests {
             EventKind::Modify(notify::event::ModifyKind::Data(
                 notify::event::DataChange::Any,
             )),
-            &map,
+            tmp.path(),
             &config,
         )
         .unwrap();
@@ -432,14 +397,13 @@ mod tests {
 
     #[test]
     fn classify_views_yaml_emits_views_changed() {
-        let (tmp, _) = setup_vault();
-        let map: HashMap<PathBuf, EntityType> = HashMap::new();
+        let tmp = setup_vault();
         let config = tmp.path().join(EDUPORT_CONFIG_DIR);
         let path = config.join(VIEWS_FILENAME);
         let ev = classify(
             &path,
             EventKind::Create(notify::event::CreateKind::File),
-            &map,
+            tmp.path(),
             &config,
         )
         .unwrap();
@@ -448,20 +412,12 @@ mod tests {
 
     #[test]
     fn classify_remove_emits_entity_deleted() {
-        let (tmp, folder_map) = setup_vault();
-        let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(
-            tmp.path().join(folder_map.folder_for(EntityType::Note)),
-            EntityType::Note,
-        );
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join("gone.md");
+        let tmp = setup_vault();
+        let path = tmp.path().join("gone.md");
         let ev = classify(
             &path,
             EventKind::Remove(notify::event::RemoveKind::File),
-            &map,
+            tmp.path(),
             &tmp.path().join(EDUPORT_CONFIG_DIR),
         )
         .unwrap();
@@ -485,62 +441,41 @@ mod tests {
     }
 
     // ── Live integration tests ──────────────────────────────────
-    //
-    // These spin up a real notify watcher against a tempdir. They're
-    // inherently timing-sensitive — debouncer-full uses a 1/4-of-
-    // timeout tick rate by default. We use a short debounce
-    // (50 ms) and a generous wait (2 s) to keep the tests reliable
-    // on slow CI.
 
     #[test]
     fn live_watcher_emits_entity_changed_on_create() {
-        let (tmp, folder_map) = setup_vault();
+        let tmp = setup_vault();
         let (tx, rx) = mpsc::channel();
-        let _watcher = Watcher::start(
-            tmp.path(),
-            &folder_map,
-            Duration::from_millis(50),
-            move |ev| {
-                let _ = tx.send(ev);
-            },
-        )
+        let _watcher = Watcher::start(tmp.path(), Duration::from_millis(50), move |ev| {
+            let _ = tx.send(ev);
+        })
         .expect("start watcher");
 
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join("hi.md");
-        fs::write(&path, "---\nname: Hi\ntags:\n  - eduport-type/note\n---\n").unwrap();
+        let path = tmp.path().join("hi.md");
+        fs::write(
+            &path,
+            "---\nname: Hi\ntags:\n  - eduport-type/note\n---\n",
+        )
+        .unwrap();
 
         let ev = recv_within(&rx, Duration::from_secs(2))
             .expect("watcher should emit an event for the new file");
         match ev {
-            VaultEvent::EntityChanged { kind, file_id, .. } => {
-                assert_eq!(kind, EntityType::Note);
-                assert_eq!(file_id, "hi");
-            }
+            VaultEvent::EntityChanged { file_id, .. } => assert_eq!(file_id, "hi"),
             other => panic!("unexpected event: {:?}", other),
         }
     }
 
     #[test]
     fn live_watcher_self_write_filter_suppresses_event() {
-        let (tmp, folder_map) = setup_vault();
+        let tmp = setup_vault();
         let (tx, rx) = mpsc::channel();
-        let watcher = Watcher::start(
-            tmp.path(),
-            &folder_map,
-            Duration::from_millis(50),
-            move |ev| {
-                let _ = tx.send(ev);
-            },
-        )
+        let watcher = Watcher::start(tmp.path(), Duration::from_millis(50), move |ev| {
+            let _ = tx.send(ev);
+        })
         .expect("start watcher");
 
-        let path = tmp
-            .path()
-            .join(folder_map.folder_for(EntityType::Note))
-            .join("self.md");
+        let path = tmp.path().join("self.md");
         watcher.note_self_write(&path);
         fs::write(
             &path,
@@ -548,7 +483,6 @@ mod tests {
         )
         .unwrap();
 
-        // Should not receive any event within a reasonable window.
         assert!(
             recv_within(&rx, Duration::from_millis(500)).is_none(),
             "self-write should suppress the watcher event"
@@ -557,24 +491,17 @@ mod tests {
 
     #[test]
     fn live_watcher_emits_schema_changed() {
-        let (tmp, folder_map) = setup_vault();
+        let tmp = setup_vault();
         let (tx, rx) = mpsc::channel();
-        let _watcher = Watcher::start(
-            tmp.path(),
-            &folder_map,
-            Duration::from_millis(50),
-            move |ev| {
-                let _ = tx.send(ev);
-            },
-        )
+        let _watcher = Watcher::start(tmp.path(), Duration::from_millis(50), move |ev| {
+            let _ = tx.send(ev);
+        })
         .expect("start watcher");
 
         let path = tmp.path().join(EDUPORT_CONFIG_DIR).join(SCHEMA_FILENAME);
         fs::write(&path, "version: 1\ntypes:\n").unwrap();
 
         let mut saw_schema = false;
-        // The OS may emit several events for one write; consume until
-        // we see the schema event or time out.
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
             if let Some(ev) = recv_within(&rx, Duration::from_millis(200))
