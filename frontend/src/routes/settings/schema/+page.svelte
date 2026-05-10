@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { ApiError } from '$lib/api/client';
 	import { purgeOrphans } from '$lib/api/schema';
 	import {
 		BUILTIN_KIND_LABELS,

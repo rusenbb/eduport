@@ -33,7 +33,11 @@
 		};
 		saving = true;
 		try {
-			const result = isTauri() ? (await bootstrapSettings(payload), payload) : await putSettings(payload);
+			// Phase-11: bootstrapSettings and putSettings are now the
+			// same call (Rust core_settings_put writes the file and
+			// boots the in-process state). isTauri() still gates a
+			// browser-dev-only no-op path for putSettings.
+			const result = isTauri() ? await bootstrapSettings(payload) : await putSettings(payload);
 			settings.set(result);
 			await status.check();
 			location.reload();

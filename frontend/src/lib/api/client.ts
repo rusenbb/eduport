@@ -1,23 +1,17 @@
 // Single source of truth for the API transport.
 //
-// Phase-10 cutover: every `api/*.ts` module now calls `coreInvoke()`
-// (Tauri command channel) by default. The legacy `apiFetch()` is
-// retained for the bootstrap flow (`/get_bootstrap_status`,
-// `/ensure_sidecar_started`) only — those still talk to the
-// Tauri-managed sidecar handle, which the frontend keeps using
-// during the Phase-10 transition. Phase 11 deletes both the
-// sidecar and the `apiFetch()` path.
-//
-// Outside Tauri (the SvelteKit dev server, vitest), `coreInvoke`
-// throws — the dev server is expected to point at a running
-// sidecar or run pure-frontend tests that don't hit the API.
+// Every `api/*.ts` module routes through `coreInvoke()` (Tauri
+// command channel). The HTTP-fetch path that used to talk to the
+// Python sidecar was removed in rewrite phase 11; outside Tauri
+// (the SvelteKit dev server, vitest), `coreInvoke` throws — the
+// dev server is expected to point at a Tauri build for any test
+// that exercises the API.
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
 
 declare global {
 	interface Window {
-		__EDUPORT_API_URL__?: string;
 		__TAURI_INTERNALS__?: unknown;
 	}
 }
@@ -41,18 +35,6 @@ export class CoreCommandError extends Error {
 		super(payload.message);
 		this.name = 'CoreCommandError';
 		this.code = payload.code;
-	}
-}
-
-/** Legacy ApiError, kept for the sidecar bootstrap flow. */
-export class ApiError extends Error {
-	constructor(
-		public status: number,
-		public detail: unknown,
-		message: string
-	) {
-		super(message);
-		this.name = 'ApiError';
 	}
 }
 
@@ -106,42 +88,4 @@ export async function listenCoreEvent<T = unknown>(
 	handler: (payload: T) => void
 ): Promise<UnlistenFn> {
 	return tauriListen<T>(event, (e) => handler(e.payload as T));
-}
-
-// ── Legacy sidecar transport (bootstrap path only) ───────────────
-
-function baseUrl(): string {
-	if (typeof window !== 'undefined' && window.__EDUPORT_API_URL__) {
-		return window.__EDUPORT_API_URL__;
-	}
-	return import.meta.env.VITE_SIDECAR_URL ?? 'http://127.0.0.1:8765';
-}
-
-export async function apiFetch<T = unknown>(
-	path: string,
-	init: RequestInit = {}
-): Promise<T> {
-	const url = `${baseUrl().replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
-	const headers = new Headers(init.headers);
-	if (init.body && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
-		headers.set('Content-Type', 'application/json');
-	}
-	const res = await fetch(url, { ...init, headers });
-	if (!res.ok) {
-		let detail: unknown = null;
-		try {
-			detail = await res.json();
-		} catch {
-			detail = await res.text().catch(() => null);
-		}
-		const detailMsg =
-			(detail && typeof detail === 'object' && 'detail' in detail
-				? (detail as { detail: unknown }).detail
-				: detail) ?? `HTTP ${res.status}`;
-		throw new ApiError(res.status, detail, String(detailMsg));
-	}
-	if (res.status === 204) return undefined as T;
-	const ct = res.headers.get('Content-Type') ?? '';
-	if (ct.includes('application/json')) return (await res.json()) as T;
-	return (await res.text()) as T;
 }

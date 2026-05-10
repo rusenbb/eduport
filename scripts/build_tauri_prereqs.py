@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
+"""Pre-build hook for `cargo tauri build`.
+
+Used to also build the Python sidecar — that step was removed when
+the Rust eduport-core landed (rewrite phases 4–11). The script
+stays so `tauri.conf.json:beforeBuildCommand` keeps working; it
+now only rebuilds the SvelteKit frontend bundle that Tauri
+embeds.
+"""
 from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -20,7 +27,6 @@ def run(command: list[str], cwd: Path = REPO) -> None:
 
 
 def main() -> int:
-    run([sys.executable, "scripts/build_sidecar.py"])
     run([NPM, "--prefix", "frontend", "run", "build"])
     return 0
 

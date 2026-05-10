@@ -1,16 +1,19 @@
 import { writable } from 'svelte/store';
-import { ApiError } from '../api/client';
+import { CoreCommandError } from '../api/client';
 import { getAppStatus } from '../api/status';
 
 export interface StatusState {
-	sidecarUp: boolean;
+	/** True when the Rust eduport-core state is reachable.
+	 *  Renamed from `sidecarUp` after rewrite phase 11; the field
+	 *  signals the same thing — "the backend is healthy". */
+	coreUp: boolean;
 	parseErrors: number;
 	lastChecked: number;
 }
 
 function createStatusStore() {
 	const { subscribe, set } = writable<StatusState>({
-		sidecarUp: false,
+		coreUp: false,
 		parseErrors: 0,
 		lastChecked: 0
 	});
@@ -20,17 +23,18 @@ function createStatusStore() {
 	async function check() {
 		try {
 			const appStatus = await getAppStatus();
-			set({ sidecarUp: true, parseErrors: appStatus.parse_errors, lastChecked: Date.now() });
+			set({ coreUp: true, parseErrors: appStatus.parse_errors, lastChecked: Date.now() });
 		} catch (err) {
+			// `not_initialised` means the Rust state hasn't loaded yet
+			// (no settings file, or settings_put hasn't happened) — the
+			// status banner treats that the same as "down".
+			const down =
+				err instanceof CoreCommandError && err.code === 'not_initialised';
 			set({
-				sidecarUp: !(err instanceof ApiError && err.status === 0),
+				coreUp: !down,
 				parseErrors: 0,
 				lastChecked: Date.now()
 			});
-			if (err instanceof TypeError) {
-				// network failure — fetch threw before getting a response
-				set({ sidecarUp: false, parseErrors: 0, lastChecked: Date.now() });
-			}
 		}
 	}
 

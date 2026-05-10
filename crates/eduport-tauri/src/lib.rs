@@ -1,75 +1,23 @@
 mod commands;
 mod core_state;
 mod reveal;
-mod sidecar;
 
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::{Path, PathBuf};
+use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
 use tauri::Manager;
 
 use crate::core_state::EduportStateHandle;
-
-struct SidecarState(Mutex<Option<sidecar::SidecarHandle>>);
 
 #[derive(Serialize)]
 struct BootstrapStatus {
     settings_exists: bool,
     settings_path: String,
-    sidecar_url: Option<String>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct BootstrapSettings {
-    data_folder: String,
-    #[serde(default = "default_attachments_folder")]
-    attachments_folder: String,
-    #[serde(default = "default_notes_folder")]
-    notes_folder: String,
-    #[serde(default = "default_theme")]
-    theme: String,
-    user_email: String,
-    #[serde(default = "default_zoom_factor")]
-    zoom_factor: f64,
-    #[serde(default)]
-    obsidian_vault: Option<String>,
-    #[serde(default = "default_confirm_deletes")]
-    confirm_deletes: bool,
-}
-
-fn default_attachments_folder() -> String {
-    "./attachments".to_string()
-}
-
-fn default_notes_folder() -> String {
-    "./notes".to_string()
-}
-
-fn default_theme() -> String {
-    "system".to_string()
-}
-
-fn default_zoom_factor() -> f64 {
-    1.0
-}
-
-fn default_confirm_deletes() -> bool {
-    true
-}
-
-#[tauri::command]
-fn get_sidecar_url(state: tauri::State<SidecarState>) -> Option<String> {
-    sidecar_url_from_state(&state)
-}
-
-fn sidecar_url_from_state(state: &tauri::State<SidecarState>) -> Option<String> {
-    state.0.lock().ok().and_then(|guard| {
-        guard
-            .as_ref()
-            .map(|h| format!("http://127.0.0.1:{}", h.port))
-    })
+    /// `true` once the eduport-core state has finished its boot
+    /// reconcile and is ready to serve commands. Lets the frontend
+    /// distinguish "no settings yet" from "settings exist but the
+    /// vault is still loading".
+    core_ready: bool,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -77,50 +25,6 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_config_dir()
         .map(|dir| dir.join("settings.toml"))
         .map_err(|e| format!("failed to resolve app config directory: {e}"))
-}
-
-fn folder_from_setting(data_folder: &Path, configured: &str) -> PathBuf {
-    let configured = Path::new(configured);
-    if configured.is_absolute() {
-        configured.to_path_buf()
-    } else {
-        data_folder.join(configured)
-    }
-}
-
-fn write_settings_file(app: &tauri::AppHandle, settings: &BootstrapSettings) -> Result<(), String> {
-    let settings_path = settings_path(app)?;
-    if let Some(parent) = settings_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create settings directory: {e}"))?;
-    }
-
-    let data_folder = PathBuf::from(&settings.data_folder);
-    fs::create_dir_all(&data_folder).map_err(|e| format!("failed to create data folder: {e}"))?;
-    fs::create_dir_all(folder_from_setting(
-        &data_folder,
-        &settings.attachments_folder,
-    ))
-    .map_err(|e| format!("failed to create attachments folder: {e}"))?;
-    fs::create_dir_all(folder_from_setting(&data_folder, &settings.notes_folder))
-        .map_err(|e| format!("failed to create notes folder: {e}"))?;
-
-    let payload =
-        toml::to_string_pretty(settings).map_err(|e| format!("failed to encode settings: {e}"))?;
-    fs::write(&settings_path, payload).map_err(|e| format!("failed to write settings: {e}"))?;
-    Ok(())
-}
-
-fn read_settings_file(app: &tauri::AppHandle) -> Result<Option<BootstrapSettings>, String> {
-    let settings_path = settings_path(app)?;
-    if !settings_path.exists() {
-        return Ok(None);
-    }
-    let raw =
-        fs::read_to_string(&settings_path).map_err(|e| format!("failed to read settings: {e}"))?;
-    toml::from_str(&raw)
-        .map(Some)
-        .map_err(|e| format!("failed to parse settings: {e}"))
 }
 
 fn sanitize_zoom(zoom_factor: f64) -> f64 {
@@ -137,67 +41,22 @@ fn apply_zoom(window: &tauri::WebviewWindow, zoom_factor: f64) -> Result<(), Str
         .map_err(|e| format!("failed to apply zoom: {e}"))
 }
 
-fn ensure_sidecar(
-    app: &tauri::AppHandle,
-    state: &tauri::State<SidecarState>,
-) -> Result<String, String> {
-    if let Some(url) = sidecar_url_from_state(state) {
-        return Ok(url);
-    }
-
-    let settings_path = settings_path(app)?;
-    if !settings_path.exists() {
-        return Err(format!(
-            "settings file does not exist yet: {}",
-            settings_path.display()
-        ));
-    }
-
-    let handle = sidecar::spawn_sidecar(app, &settings_path)?;
-    let port = handle.port;
-    if let Err(e) = sidecar::wait_for_health(port, Duration::from_secs(8)) {
-        sidecar::kill_sidecar(handle);
-        return Err(e);
-    }
-
-    if let Ok(mut guard) = state.0.lock() {
-        *guard = Some(handle);
-    }
-
-    Ok(format!("http://127.0.0.1:{port}"))
-}
-
 #[tauri::command]
-fn get_bootstrap_status(
+fn core_bootstrap_status(
     app: tauri::AppHandle,
-    state: tauri::State<SidecarState>,
+    state: tauri::State<EduportStateHandle>,
 ) -> Result<BootstrapStatus, String> {
-    let settings_path = settings_path(&app)?;
+    let path = settings_path(&app)?;
+    let core_ready = state
+        .lock()
+        .ok()
+        .map(|g| g.is_some())
+        .unwrap_or(false);
     Ok(BootstrapStatus {
-        settings_exists: settings_path.exists(),
-        settings_path: settings_path.to_string_lossy().into_owned(),
-        sidecar_url: sidecar_url_from_state(&state),
+        settings_exists: path.exists(),
+        settings_path: path.to_string_lossy().into_owned(),
+        core_ready,
     })
-}
-
-#[tauri::command]
-fn ensure_sidecar_started(
-    app: tauri::AppHandle,
-    state: tauri::State<SidecarState>,
-) -> Result<String, String> {
-    ensure_sidecar(&app, &state)
-}
-
-#[tauri::command]
-fn bootstrap_settings(
-    app: tauri::AppHandle,
-    state: tauri::State<SidecarState>,
-    window: tauri::WebviewWindow,
-    settings: BootstrapSettings,
-) -> Result<String, String> {
-    write_settings_file(&app, &settings)?;
-    apply_zoom(&window, settings.zoom_factor)?;
-    ensure_sidecar(&app, &state)
 }
 
 #[tauri::command]
@@ -209,9 +68,7 @@ fn set_app_zoom(window: tauri::WebviewWindow, zoom_factor: f64) -> Result<(), St
 ///
 /// Failure is logged at error level rather than aborting startup;
 /// the user can still complete first-run setup or fix a corrupted
-/// settings file from the GUI. The Phase 9 cutover keeps the
-/// sidecar running in parallel until Phase 11 deletes it, so the
-/// app remains functional even if the new state failed to boot.
+/// settings file from the GUI.
 fn try_boot_eduport_core(app: &tauri::AppHandle) {
     let state_handle = app.state::<EduportStateHandle>();
     let path = match settings_path(app) {
@@ -222,7 +79,10 @@ fn try_boot_eduport_core(app: &tauri::AppHandle) {
         }
     };
     if !path.exists() {
-        log::info!("eduport-core boot deferred: no settings file at {}", path.display());
+        log::info!(
+            "eduport-core boot deferred: no settings file at {}",
+            path.display()
+        );
         return;
     }
     let settings = match eduport_core::load_settings(&path) {
@@ -236,6 +96,11 @@ fn try_boot_eduport_core(app: &tauri::AppHandle) {
             return;
         }
     };
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = apply_zoom(&window, settings.zoom_factor);
+    }
+
     match core_state::build_state(app, &settings) {
         Ok(state) => {
             if let Ok(mut guard) = state_handle.lock() {
@@ -253,7 +118,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(SidecarState(Mutex::new(None)))
         // The eduport-core state is `Mutex<Option<Arc<...>>>` so it
         // can be lazily populated after first-run setup completes.
         .manage::<EduportStateHandle>(Mutex::new(None))
@@ -266,47 +130,14 @@ pub fn run() {
                 )?;
             }
 
-            match settings_path(app.handle()) {
-                Ok(path) if path.exists() => {
-                    if let Ok(Some(settings)) = read_settings_file(app.handle()) {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = apply_zoom(&window, settings.zoom_factor);
-                        }
-                    }
-                    let state = app.state::<SidecarState>();
-                    match ensure_sidecar(app.handle(), &state) {
-                        Ok(url) => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ =
-                                    window.eval(format!("window.__EDUPORT_API_URL__ = '{}';", url));
-                            }
-                        }
-                        Err(e) => log::error!("failed to start sidecar: {}", e),
-                    }
-                }
-                Ok(path) => {
-                    log::info!(
-                        "settings file not found at {}; waiting for first-run setup",
-                        path.display()
-                    );
-                }
-                Err(e) => log::error!("{}", e),
-            }
-
-            // Boot eduport-core in parallel with the legacy sidecar.
-            // Phases 10 & 11 progressively retire the sidecar; this
-            // dual-boot is the migration window.
             try_boot_eduport_core(app.handle());
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Legacy sidecar bootstrap (Phase 11 deletes these along
-            // with the sidecar.rs / sidecar process).
-            bootstrap_settings,
-            ensure_sidecar_started,
-            get_bootstrap_status,
-            get_sidecar_url,
+            // Bootstrap + zoom + reveal helpers (kept after the
+            // sidecar removal — they're host-shell commands, not
+            // sidecar API).
+            core_bootstrap_status,
             set_app_zoom,
             reveal::copy_file,
             reveal::open_path,
@@ -359,11 +190,6 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                if let Ok(mut guard) = window.app_handle().state::<SidecarState>().0.lock() {
-                    if let Some(handle) = guard.take() {
-                        sidecar::kill_sidecar(handle);
-                    }
-                }
                 // Stop the eduport-core watcher so its threads
                 // shut down cleanly.
                 core_state::shutdown(&window.app_handle().state::<EduportStateHandle>());

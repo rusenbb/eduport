@@ -84,7 +84,7 @@
 
 {#if data.hasSettings === false}
 	<FirstRunPrompt />
-{:else if !$status.sidecarUp && $status.lastChecked > 0}
+{:else if !$status.coreUp && $status.lastChecked > 0}
 	<div class="flex h-screen w-screen items-center justify-center p-6 text-center">
 		<div>
 			<h1 class="text-xl font-semibold text-[var(--color-bad)]">Backend offline</h1>

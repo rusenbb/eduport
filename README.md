@@ -27,46 +27,64 @@ A single-user desktop app for tracking university applications, programs, people
 
 ```
 ┌─────────────────────────────────────────┐
-│ Tauri shell (Rust)                      │
-│  • spawns + supervises Python sidecar    │
-│  • hosts WebView at the sidecar's URL    │
-│  • bridges native dialogs + reveal       │
+│ Tauri shell (Rust) — eduport-tauri       │
+│  • Hosts the WebView                     │
+│  • #[tauri::command] handlers wrap        │
+│    eduport-core for the SvelteKit UI     │
+│  • Forwards watcher events as Tauri      │
+│    events (eduport:vault-event /         │
+│    eduport:parse-error)                  │
 └─────────────┬───────────────────────────┘
-              │ HTTP loopback (127.0.0.1:<random port>)
+              │ Tauri command channel (in-process)
               ▼
 ┌─────────────────────────────────────────┐
-│ Python sidecar (FastAPI + uvicorn)      │
-│  • REST API over .md entity files        │
-│  • watchdog file watcher                 │
-│  • markdown-it-py + YAML parsing         │
-│  • SQLite + FTS5 indexer                 │
+│ eduport-core (Rust library)              │
+│  • Typed entities + custom-property       │
+│    schema validator                      │
+│  • Atomic file writes via vaultdb-core   │
+│  • SQLite + FTS5 search/filter index      │
+│  • notify-based file watcher             │
+│  • EML parser                            │
+└─────────────┬───────────────────────────┘
+              │ depends on
+              ▼
+┌─────────────────────────────────────────┐
+│ vaultdb-core (Rust library)              │
+│  • Treats a markdown vault as a queryable │
+│    database                              │
+│  • Frontmatter parser, link graph,        │
+│    transactional rename, vault lock       │
 └─────────────────────────────────────────┘
 ```
+
+> The Python (FastAPI) sidecar that this stack used to ship with was
+> retired in rewrite phase 11; everything now lives in process via
+> `eduport-core` and `eduport-tauri`. The original design spec is at
+> [`docs/superpowers/specs/2026-05-09-vaultdb-rewrite-design.md`](docs/superpowers/specs/2026-05-09-vaultdb-rewrite-design.md).
 
 ## Tech stack
 
 | Layer | Choice |
 |---|---|
 | Native shell | Tauri 2 (Rust) |
+| Domain layer | `eduport-core` (Rust) over `vaultdb-core` |
 | Frontend | SvelteKit + Svelte 5, Tailwind CSS v4, CodeMirror 6 |
 | Markdown render (UI) | `marked` + custom wikilink/checkbox extraction |
-| Sidecar API | FastAPI + uvicorn, Pydantic v2 |
-| File watcher | `watchdog` |
-| Storage / search | stdlib `sqlite3` with FTS5 |
-| Desktop bundling | Tauri externalBin + PyInstaller for the sidecar |
-| Tooling | `uv` (Python), `npm` (frontend), `cargo` (Rust) |
+| File watcher | `notify` + `notify-debouncer-full` (Rust) |
+| Storage / search | `rusqlite` with bundled SQLite + FTS5 |
+| Desktop bundling | Tauri (no external sidecar binary) |
+| Tooling | `cargo` (Rust), `npm` (frontend) |
 
 ## Project structure
 
 ```
 Cargo.toml                     workspace manifest
 crates/
-  eduport-core/                Rust library — domain layer, schema, FTS5, watcher (Phase 4+)
-  eduport-tauri/               Rust shell (Tauri 2) — entry point + native bridges
+  eduport-core/                Rust library — typed schema, FTS5, watcher, EML, settings
+  eduport-tauri/               Rust shell (Tauri 2) — Tauri commands + native bridges
 docs/                          design spec, packaging notes, implementation plans
-frontend/                      SvelteKit app — UI + API client
-scripts/                       build helpers (sidecar bundling, Tauri prereqs)
-sidecar/                       Python (FastAPI) — to be retired by Phase 11 of the rewrite
+frontend/                      SvelteKit app — UI + Tauri-invoke API client
+scripts/                       build helpers (Tauri prereqs)
 ```
 
 ## Prerequisites
@@ -75,7 +93,6 @@ The project targets macOS, Windows, and Linux. All three need:
 
 - **Rust** 1.77.2+ (`rustup install stable`)
 - **Node.js** 20+ and npm
-- **Python** 3.12+ and [`uv`](https://docs.astral.sh/uv/)
 
 Plus the OS-specific Tauri prerequisites (full reference: <https://v2.tauri.app/start/prerequisites/>):
 
@@ -85,14 +102,6 @@ Plus the OS-specific Tauri prerequisites (full reference: <https://v2.tauri.app/
 
 ## Getting started
 
-### Run the sidecar standalone (API on an arbitrary port)
-
-```bash
-cd sidecar
-uv sync
-uv run eduport-sidecar
-```
-
 ### Run the frontend in a browser (UI only, no Tauri bridges)
 
 ```bash
@@ -101,11 +110,11 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-In browser-only mode, dialogs that require Tauri (folder pickers, native file reveal) fall back to dev placeholders.
+In browser-only mode, dialogs and API commands that require Tauri fall back to dev placeholders or throw — the dev server is for component work, not API exercise.
 
 ### Build + install the full desktop app
 
-The fastest path to a real installable app is the packaging script — it bundles the Python sidecar with PyInstaller, builds the SvelteKit frontend, and runs `tauri build`:
+The packaging script builds the SvelteKit frontend then runs `tauri build`:
 
 ```bash
 python3 scripts/build_desktop.py
@@ -116,14 +125,16 @@ On Linux this produces `.deb` and `.rpm` under `target/release/bundle/`. Install
 ## Tests + checks
 
 ```bash
-# Sidecar (Python) — pytest + ruff
-cd sidecar
-uv run pytest -q
-uv run ruff check src/ tests/
+# eduport-core unit tests
+cargo test -p eduport-core
+
+# whole-workspace clippy
+cargo clippy --workspace --all-targets -- -D warnings
 
 # Frontend — type-check + Svelte diagnostics
 cd frontend
 npm run check
+npx vitest --run
 ```
 
 ## Documentation

@@ -139,7 +139,7 @@
 	<div class="px-2 pb-1 pt-2">
 		<div class="text-sm font-semibold">Eduport</div>
 		<div class="mt-1 text-[10px] text-[var(--color-muted)]">
-			{$status.sidecarUp ? `${ENTITY_TYPES.length} entity types` : 'Backend offline'}
+			{$status.coreUp ? `${ENTITY_TYPES.length} entity types` : 'Backend offline'}
 		</div>
 	</div>
 	<div class="flex flex-col gap-1">
