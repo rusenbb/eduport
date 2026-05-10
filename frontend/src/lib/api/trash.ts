@@ -1,21 +1,18 @@
-import { apiFetch } from './client';
+import { coreInvoke } from './client';
 import type { TrashItem } from '../types';
 
 export function listTrash(): Promise<TrashItem[]> {
-	return apiFetch('/trash');
+	return coreInvoke('core_trash_list');
 }
 
 export function restoreTrashItem(name: string): Promise<{ path: string; file_id: string }> {
-	return apiFetch('/trash/restore', {
-		method: 'POST',
-		body: JSON.stringify({ name })
-	});
+	return coreInvoke('core_trash_restore', { body: { name } });
 }
 
 export function deleteTrashItem(name: string): Promise<void> {
-	return apiFetch(`/trash/${encodeURIComponent(name)}`, { method: 'DELETE' });
+	return coreInvoke('core_trash_delete', { name });
 }
 
 export function emptyTrash(): Promise<void> {
-	return apiFetch('/trash', { method: 'DELETE' });
+	return coreInvoke('core_trash_empty');
 }

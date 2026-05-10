@@ -1,10 +1,10 @@
-import { apiFetch } from './client';
+import { coreInvoke } from './client';
 import type { AppStatus, ParseErrorItem } from '../types';
 
 export function getAppStatus(): Promise<AppStatus> {
-	return apiFetch('/status');
+	return coreInvoke('core_get_status');
 }
 
 export function listParseErrors(): Promise<ParseErrorItem[]> {
-	return apiFetch('/parse-errors');
+	return coreInvoke('core_list_parse_errors');
 }

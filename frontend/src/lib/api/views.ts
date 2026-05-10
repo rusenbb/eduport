@@ -1,8 +1,8 @@
 /**
- * Saved-views API client.
+ * Saved-views API client. Phase-10 cutover: Tauri command channel.
  */
 
-import { apiFetch } from './client';
+import { coreInvoke } from './client';
 import type { EntityType } from '../types';
 import type { TypeViews, View, ViewKind, ViewsFile } from '../types/view';
 
@@ -29,21 +29,18 @@ export interface UpdateViewBody {
 }
 
 export function getAllViews(): Promise<ViewsFile> {
-	return apiFetch('/api/views');
+	return coreInvoke('core_view_get_all');
 }
 
 export function getViewsForType(type: EntityType): Promise<TypeViews> {
-	return apiFetch(`/api/views/types/${type}`);
+	return coreInvoke('core_view_get_for_type', { entityType: type });
 }
 
 export function createView(
 	type: EntityType,
 	body: CreateViewBody
 ): Promise<{ view: View; type_views: TypeViews }> {
-	return apiFetch(`/api/views/types/${type}`, {
-		method: 'POST',
-		body: JSON.stringify(body)
-	});
+	return coreInvoke('core_view_create', { entityType: type, body });
 }
 
 export function updateView(
@@ -51,21 +48,13 @@ export function updateView(
 	viewId: string,
 	body: UpdateViewBody
 ): Promise<{ view: View; type_views: TypeViews }> {
-	return apiFetch(`/api/views/types/${type}/${encodeURIComponent(viewId)}`, {
-		method: 'PUT',
-		body: JSON.stringify(body)
-	});
+	return coreInvoke('core_view_update', { entityType: type, viewId, body });
 }
 
 export function deleteView(type: EntityType, viewId: string): Promise<TypeViews> {
-	return apiFetch(`/api/views/types/${type}/${encodeURIComponent(viewId)}`, {
-		method: 'DELETE'
-	});
+	return coreInvoke('core_view_delete', { entityType: type, viewId });
 }
 
 export function reorderViews(type: EntityType, ordered_ids: string[]): Promise<TypeViews> {
-	return apiFetch(`/api/views/types/${type}/reorder`, {
-		method: 'POST',
-		body: JSON.stringify({ ordered_ids })
-	});
+	return coreInvoke('core_view_reorder', { entityType: type, orderedIds: ordered_ids });
 }

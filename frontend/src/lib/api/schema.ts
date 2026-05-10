@@ -1,20 +1,14 @@
 /**
  * Schema editor + property aggregation API client.
  *
- * Endpoints:
- *   GET    /api/schema
- *   GET    /api/schema/types/{type}
- *   POST   /api/schema/types/{type}/properties
- *   PATCH  /api/schema/types/{type}/properties/{key}
- *   DELETE /api/schema/types/{type}/properties/{key}
- *   POST   /api/schema/templates/tier
- *   POST   /api/schema/types/{type}/properties/{key}/purge_orphans
- *
- *   GET    /api/properties/counts/{type}/{key}
- *   GET    /api/properties/filter/{type}?text=...&num=...&date=...&sort=...&sort_dir=...
+ * Phase 10 cutover: Tauri command channel via `coreInvoke`.
+ * Filter parsing helpers (`buildFilterQuery`, `parseFilterParams`,
+ * `writeFilterParams`, `hasActiveFilters`) stay because the URL
+ * is the source of truth for view-state — they don't reach the
+ * backend.
  */
 
-import { apiFetch } from './client';
+import { coreInvoke } from './client';
 import type { EntityType, EntityListItem } from '../types';
 import type {
 	EntityTypeSchema,
@@ -28,18 +22,15 @@ import type {
 // ----- schema CRUD ----------------------------------------------------------
 
 export function getSchema(): Promise<FullSchema> {
-	return apiFetch('/api/schema');
+	return coreInvoke('core_schema_get');
 }
 
 export function getTypeSchema(type: EntityType): Promise<EntityTypeSchema> {
-	return apiFetch(`/api/schema/types/${type}`);
+	return coreInvoke('core_schema_get_type', { entityType: type });
 }
 
 export function addProperty(type: EntityType, prop: Property): Promise<EntityTypeSchema> {
-	return apiFetch(`/api/schema/types/${type}/properties`, {
-		method: 'POST',
-		body: JSON.stringify(prop)
-	});
+	return coreInvoke('core_schema_add_property', { entityType: type, property: prop });
 }
 
 export interface PropertyPatch {
@@ -57,25 +48,20 @@ export function patchProperty(
 	key: string,
 	patch: PropertyPatch
 ): Promise<EntityTypeSchema> {
-	return apiFetch(`/api/schema/types/${type}/properties/${encodeURIComponent(key)}`, {
-		method: 'PATCH',
-		body: JSON.stringify(patch)
-	});
+	return coreInvoke('core_schema_patch_property', { entityType: type, key, patch });
 }
 
 export function deleteProperty(type: EntityType, key: string): Promise<EntityTypeSchema> {
-	return apiFetch(`/api/schema/types/${type}/properties/${encodeURIComponent(key)}`, {
-		method: 'DELETE'
-	});
+	return coreInvoke('core_schema_delete_property', { entityType: type, key });
 }
 
 export function reorderProperties(
 	type: EntityType,
 	orderedKeys: string[]
 ): Promise<EntityTypeSchema> {
-	return apiFetch(`/api/schema/types/${type}/reorder`, {
-		method: 'POST',
-		body: JSON.stringify({ ordered_keys: orderedKeys })
+	return coreInvoke('core_schema_reorder_properties', {
+		entityType: type,
+		orderedKeys
 	});
 }
 
@@ -83,20 +69,14 @@ export function applyTierTemplate(types: EntityType[]): Promise<{
 	results: Record<string, { status: 'added' | 'exists' }>;
 	schema: FullSchema;
 }> {
-	return apiFetch('/api/schema/templates/tier', {
-		method: 'POST',
-		body: JSON.stringify({ types })
-	});
+	return coreInvoke('core_schema_apply_tier_template', { types });
 }
 
 export function purgeOrphans(
 	type: EntityType,
 	key: string
 ): Promise<{ rewritten: number; skipped: { file_id: string; reason: string }[] }> {
-	return apiFetch(
-		`/api/schema/types/${type}/properties/${encodeURIComponent(key)}/purge_orphans`,
-		{ method: 'POST' }
-	);
+	return coreInvoke('core_schema_purge_orphans', { entityType: type, key });
 }
 
 // ----- property aggregations / filtering ------------------------------------
@@ -105,8 +85,44 @@ export function getPropertyCounts(
 	type: EntityType,
 	key: string
 ): Promise<{ entity_type: EntityType; key: string; values: PropertyCount[] }> {
-	return apiFetch(`/api/properties/counts/${type}/${encodeURIComponent(key)}`);
+	return coreInvoke('core_property_value_counts', { entityType: type, key });
 }
+
+export function filterEntitiesByProperties(
+	type: EntityType,
+	filters: PropertyFilters
+): Promise<EntityListItem[]> {
+	// The Tauri command takes an object mirror of `PropertyFilters`,
+	// so we forward it verbatim. Range tuples (`[lo, hi]`) deserialize
+	// directly into Rust `(Option<f64>, Option<f64>)` etc.
+	return coreInvoke('core_filter_entities_by_properties', {
+		entityType: type,
+		filters: {
+			text: filters.text,
+			num: filters.num,
+			date: filters.date,
+			sort: filters.sort ?? null,
+			sort_dir: filters.sortDir ?? null
+		}
+	});
+}
+
+/** Returns true when at least one filter / sort is active. */
+export function hasActiveFilters(filters: PropertyFilters): boolean {
+	return (
+		Object.keys(filters.text).length > 0 ||
+		Object.keys(filters.num).length > 0 ||
+		Object.keys(filters.date).length > 0 ||
+		!!filters.sort
+	);
+}
+
+// ----- URL-shaped filter helpers (unchanged) --------------------------------
+//
+// These helpers run entirely in the frontend — they decode and
+// encode `PropertyFilters` against `URLSearchParams` so the
+// browser URL captures view state. They never reach the backend
+// and are unaffected by the transport swap.
 
 function encodeRange(lo: number | string | null, hi: number | string | null): string {
 	const left = lo === null || lo === undefined ? '' : String(lo);
@@ -114,7 +130,6 @@ function encodeRange(lo: number | string | null, hi: number | string | null): st
 	return `${left}..${right}`;
 }
 
-/** Serialize PropertyFilters into the query string that /api/properties/filter expects. */
 export function buildFilterQuery(filters: PropertyFilters): string {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(filters.text)) {
@@ -134,24 +149,6 @@ export function buildFilterQuery(filters: PropertyFilters): string {
 	return qs ? `?${qs}` : '';
 }
 
-export function filterEntitiesByProperties(
-	type: EntityType,
-	filters: PropertyFilters
-): Promise<EntityListItem[]> {
-	return apiFetch(`/api/properties/filter/${type}${buildFilterQuery(filters)}`);
-}
-
-/** Returns true when at least one filter / sort is active. */
-export function hasActiveFilters(filters: PropertyFilters): boolean {
-	return (
-		Object.keys(filters.text).length > 0 ||
-		Object.keys(filters.num).length > 0 ||
-		Object.keys(filters.date).length > 0 ||
-		!!filters.sort
-	);
-}
-
-/** Decode PropertyFilters from URLSearchParams. Mirrors `buildFilterQuery`. */
 export function parseFilterParams(params: URLSearchParams): PropertyFilters {
 	const out: PropertyFilters = { text: {}, num: {}, date: {} };
 	for (const v of params.getAll('text')) {
@@ -185,8 +182,6 @@ export function parseFilterParams(params: URLSearchParams): PropertyFilters {
 	return out;
 }
 
-/** Apply filter parameters onto a URLSearchParams, removing any pre-existing
- * `text` / `num` / `date` / `sort` / `sort_dir` entries. */
 export function writeFilterParams(params: URLSearchParams, filters: PropertyFilters): void {
 	for (const k of ['text', 'num', 'date', 'sort', 'sort_dir']) params.delete(k);
 	for (const [key, value] of Object.entries(filters.text)) {
