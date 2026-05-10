@@ -17,10 +17,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use eduport_core::entity::Entity;
-use eduport_core::index::writer::{
-    delete_entity as index_delete, upsert_entity as index_upsert,
-};
-use eduport_core::index::{EntitySummary, list_entities};
+use eduport_core::index::writer::{delete_entity as index_delete, upsert_entity as index_upsert};
+use eduport_core::index::{list_entities, EntitySummary};
 use eduport_core::EntityType;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -124,11 +122,8 @@ pub fn core_entity_get(
         .entity_store
         .find_by_name(entity_type, &file_id)
         .map_err(CommandError::from)?;
-    let entity = entity_opt.ok_or_else(|| {
-        CommandError::not_found(format!(
-            "no entity {entity_type}/{file_id}"
-        ))
-    })?;
+    let entity = entity_opt
+        .ok_or_else(|| CommandError::not_found(format!("no entity {entity_type}/{file_id}")))?;
     let path = st.entity_store.path_for(entity_type, &file_id);
     let body = read_body(&path).unwrap_or_default();
     let entity_name = entity.name().to_string();
@@ -281,8 +276,7 @@ fn entity_to_json(entity: &Entity) -> Result<JsonValue, CommandError> {
         .map_err(|e| CommandError::internal(format!("entity serialise: {e}")))?;
     let v: serde_yaml::Value = serde_yaml::from_str(&yaml)
         .map_err(|e| CommandError::internal(format!("yaml→value: {e}")))?;
-    serde_json::to_value(v)
-        .map_err(|e| CommandError::internal(format!("value→json: {e}")))
+    serde_json::to_value(v).map_err(|e| CommandError::internal(format!("value→json: {e}")))
 }
 
 fn json_to_entity(frontmatter: JsonValue, expected: EntityType) -> Result<Entity, CommandError> {
@@ -320,9 +314,7 @@ fn generate_unique_file_id(
         state.entity_store.path_for(entity_type, &probe).exists()
     })
     .ok_or_else(|| {
-        CommandError::conflict(
-            "could not generate a unique file_id; vault may be saturated",
-        )
+        CommandError::conflict("could not generate a unique file_id; vault may be saturated")
     })?;
     Ok(if slug.is_empty() {
         id
@@ -420,4 +412,3 @@ fn lookup_kind_for_name(state: &EduportState, name: &str) -> Option<String> {
         )
         .ok()
 }
-

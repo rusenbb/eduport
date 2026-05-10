@@ -125,7 +125,10 @@ pub fn core_trash_delete(
     let st = require_state(&state)?;
     let trash_path = trash_path_for(&st.data_folder, &name)?;
     if !trash_path.exists() {
-        return Err(CommandError::not_found(format!("no item {:?} in trash", name)));
+        return Err(CommandError::not_found(format!(
+            "no item {:?} in trash",
+            name
+        )));
     }
     std::fs::remove_file(&trash_path)?;
     Ok(())
@@ -133,9 +136,7 @@ pub fn core_trash_delete(
 
 /// Permanently empty the trash directory.
 #[tauri::command]
-pub fn core_trash_empty(
-    state: State<'_, EduportStateHandle>,
-) -> Result<(), CommandError> {
+pub fn core_trash_empty(state: State<'_, EduportStateHandle>) -> Result<(), CommandError> {
     let st = require_state(&state)?;
     let dir = st.data_folder.join(TRASH_DIR_NAME);
     if !dir.exists() {
@@ -172,10 +173,7 @@ fn trash_path_for(data_folder: &Path, name: &str) -> Result<PathBuf, CommandErro
 /// when the file can't be parsed or the tag is missing — restore
 /// then errors with a `invalid` code so the frontend can present a
 /// meaningful message.
-fn infer_original_path(
-    state: &crate::core_state::EduportState,
-    trashed: &Path,
-) -> Option<PathBuf> {
+fn infer_original_path(state: &crate::core_state::EduportState, trashed: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(trashed).ok()?;
     let trimmed = raw.strip_prefix("---\n")?;
     let close = trimmed.find("\n---\n")?;

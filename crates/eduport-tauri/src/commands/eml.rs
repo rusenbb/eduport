@@ -58,7 +58,7 @@ pub fn core_parse_eml(
     bytes: Vec<u8>,
 ) -> Result<ParsedEmlDto, CommandError> {
     let st = require_state(&state)?;
-    let parsed = parse_eml(&bytes, &st.user_email)
-        .map_err(|e| CommandError::invalid(e.to_string()))?;
+    let parsed =
+        parse_eml(&bytes, &st.user_email).map_err(|e| CommandError::invalid(e.to_string()))?;
     Ok(parsed.into())
 }

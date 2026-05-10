@@ -40,7 +40,7 @@ use eduport_core::entity::EntityStore;
 use eduport_core::index::{self, Index};
 use eduport_core::schema::SchemaStore;
 use eduport_core::view::store::ViewStore;
-use eduport_core::watcher::{DEFAULT_DEBOUNCE, VaultEvent, Watcher};
+use eduport_core::watcher::{VaultEvent, Watcher, DEFAULT_DEBOUNCE};
 use eduport_core::{Settings, Vault};
 use tauri::Emitter;
 
@@ -166,7 +166,11 @@ fn handle_watcher_event(
     };
 
     match &event {
-        VaultEvent::EntityChanged { kind, path, file_id } => {
+        VaultEvent::EntityChanged {
+            kind,
+            path,
+            file_id,
+        } => {
             // Try to read+parse the file and upsert. On failure,
             // record a parse error and let the frontend surface it.
             let parse_result = read_and_parse(path, *kind);
@@ -243,13 +247,21 @@ fn handle_watcher_event(
 fn event_payload(event: &VaultEvent) -> serde_json::Value {
     use serde_json::json;
     match event {
-        VaultEvent::EntityChanged { kind, file_id, path } => json!({
+        VaultEvent::EntityChanged {
+            kind,
+            file_id,
+            path,
+        } => json!({
             "kind": "entity_changed",
             "entity_type": kind.as_str(),
             "file_id": file_id,
             "path": path.to_string_lossy(),
         }),
-        VaultEvent::EntityDeleted { kind, file_id, path } => json!({
+        VaultEvent::EntityDeleted {
+            kind,
+            file_id,
+            path,
+        } => json!({
             "kind": "entity_deleted",
             "entity_type": kind.as_str(),
             "file_id": file_id,

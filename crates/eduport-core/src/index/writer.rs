@@ -84,10 +84,7 @@ pub fn upsert_entity(
         // FTS5 row: explicit delete-then-insert. INSERT OR REPLACE
         // doesn't compose well with FTS5 virtual tables, and the
         // contentful-table semantics make the round-trip ambiguous.
-        conn.execute(
-            "DELETE FROM entities_fts WHERE rowid = ?1",
-            params![rowid],
-        )?;
+        conn.execute("DELETE FROM entities_fts WHERE rowid = ?1", params![rowid])?;
         let custom_text = match schema {
             Some(s) => custom_text_for_fts5(entity, s),
             None => String::new(),
@@ -130,10 +127,7 @@ pub fn delete_entity(conn: &Connection, file_id: &str) -> Result<(), IndexError>
             )
             .ok();
         if let Some(rowid) = rowid {
-            conn.execute(
-                "DELETE FROM entities_fts WHERE rowid = ?1",
-                params![rowid],
-            )?;
+            conn.execute("DELETE FROM entities_fts WHERE rowid = ?1", params![rowid])?;
         }
         conn.execute("DELETE FROM entities WHERE file_id = ?1", params![file_id])?;
         Ok(())
@@ -143,11 +137,7 @@ pub fn delete_entity(conn: &Connection, file_id: &str) -> Result<(), IndexError>
 /// Record (or replace) a parse error for a path. Surfaced to the UI
 /// via the watcher's `parse-error` event — see `src/watcher.rs`
 /// (Phase 8).
-pub fn record_parse_error(
-    conn: &Connection,
-    path: &str,
-    message: &str,
-) -> Result<(), IndexError> {
+pub fn record_parse_error(conn: &Connection, path: &str, message: &str) -> Result<(), IndexError> {
     conn.execute(
         "INSERT OR REPLACE INTO parse_errors(path, message) VALUES (?1, ?2)",
         params![path, message],
@@ -165,17 +155,12 @@ pub fn clear_parse_error(conn: &Connection, path: &str) -> Result<(), IndexError
 /// schema. Called after a schema mutation (add/patch/delete property)
 /// so the SQL filter/sort surface stays in sync. Returns the number
 /// of entities re-indexed.
-pub fn reindex_all_properties(
-    conn: &Connection,
-    schema: &Schema,
-) -> Result<usize, IndexError> {
+pub fn reindex_all_properties(conn: &Connection, schema: &Schema) -> Result<usize, IndexError> {
     // Pull (file_id, frontmatter) pairs out first so we don't hold a
     // statement open during the per-row mutation.
     let pairs: Vec<(String, String)> = {
         let mut stmt = conn.prepare("SELECT file_id, frontmatter FROM entities")?;
-        let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
 
@@ -528,23 +513,24 @@ mod tests {
     fn upsert_with_schema_indexes_text_property() {
         let index = Index::open_in_memory().expect("open");
         let mut schema = empty_schema();
-        schema.types.get_mut(&EntityType::Note).unwrap().properties = vec![Property::Text(
-            TextProperty {
+        schema.types.get_mut(&EntityType::Note).unwrap().properties =
+            vec![Property::Text(TextProperty {
                 key: "summary".into(),
                 name: "Summary".into(),
                 description: None,
                 required: false,
                 default: None,
-            },
-        )];
+            })];
 
         let mut n = Note {
             name: "Howdy".into(),
             tags: vec!["eduport-type/note".into()],
             custom: Default::default(),
         };
-        n.custom
-            .insert("summary".into(), serde_yaml::Value::String("hello there".into()));
+        n.custom.insert(
+            "summary".into(),
+            serde_yaml::Value::String("hello there".into()),
+        );
 
         let entity = Entity::Note(n);
         upsert_entity(
@@ -587,15 +573,14 @@ mod tests {
         let index = Index::open_in_memory().expect("open");
         // First load: schema has property "summary"
         let mut schema = empty_schema();
-        schema.types.get_mut(&EntityType::Note).unwrap().properties = vec![Property::Text(
-            TextProperty {
+        schema.types.get_mut(&EntityType::Note).unwrap().properties =
+            vec![Property::Text(TextProperty {
                 key: "summary".into(),
                 name: "Summary".into(),
                 description: None,
                 required: false,
                 default: None,
-            },
-        )];
+            })];
         let mut n = Note {
             name: "X".into(),
             tags: vec!["eduport-type/note".into()],
@@ -618,25 +603,22 @@ mod tests {
 
         // After: schema declares "note" instead. Reindex should
         // replace "summary" with "note" in the properties table.
-        schema.types.get_mut(&EntityType::Note).unwrap().properties = vec![Property::Text(
-            TextProperty {
+        schema.types.get_mut(&EntityType::Note).unwrap().properties =
+            vec![Property::Text(TextProperty {
                 key: "note".into(),
                 name: "Note".into(),
                 description: None,
                 required: false,
                 default: None,
-            },
-        )];
+            })];
         let n_reindexed = reindex_all_properties(index.conn(), &schema).unwrap();
         assert_eq!(n_reindexed, 1);
 
         let key: String = index
             .conn()
-            .query_row(
-                "SELECT key FROM properties WHERE file_id = 'x'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT key FROM properties WHERE file_id = 'x'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(key, "note");
     }

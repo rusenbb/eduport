@@ -64,10 +64,8 @@ pub fn reconcile(
     // target.
     let existing: HashMap<String, i64> = {
         let mut stmt = conn.prepare("SELECT file_id, mtime_ns FROM entities")?;
-        stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-        })?
-        .collect::<rusqlite::Result<HashMap<_, _>>>()?
+        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<HashMap<_, _>>>()?
     };
 
     let mut seen: HashSet<String> = HashSet::new();
@@ -200,7 +198,11 @@ fn load_entity_at(path: &Path, kind: EntityType, store: &EntityStore) -> LoadRes
 
     let (yaml, body) = match split_frontmatter(&raw) {
         Some(v) => v,
-        None => return LoadResult::ParseError("missing or malformed `---` frontmatter delimiters".into()),
+        None => {
+            return LoadResult::ParseError(
+                "missing or malformed `---` frontmatter delimiters".into(),
+            );
+        }
     };
 
     let entity = match Entity::from_yaml(yaml) {
@@ -253,16 +255,13 @@ mod tests {
 
     fn write_note_file(folder: &Path, stem: &str, name: &str, body: &str) {
         let path = folder.join(format!("{stem}.md"));
-        let yaml = format!(
-            "---\nname: {name}\ntags:\n  - eduport-type/note\n---\n{body}"
-        );
+        let yaml = format!("---\nname: {name}\ntags:\n  - eduport-type/note\n---\n{body}");
         fs::write(&path, yaml).unwrap();
     }
 
     fn setup_vault() -> (TempDir, EntityStore) {
         let tmp = TempDir::new().unwrap();
-        let store =
-            EntityStore::new(vaultdb_core::Vault::with_root(tmp.path().to_path_buf()));
+        let store = EntityStore::new(vaultdb_core::Vault::with_root(tmp.path().to_path_buf()));
         for kind in EntityType::ALL {
             // Pre-create every entity folder so reconcile's
             // `resolve_folder` succeeds even on the empty-vault path.
@@ -307,10 +306,7 @@ mod tests {
         // round to the second).
         index
             .conn()
-            .execute(
-                "UPDATE entities SET mtime_ns = 0 WHERE file_id = 'a'",
-                [],
-            )
+            .execute("UPDATE entities SET mtime_ns = 0 WHERE file_id = 'a'", [])
             .unwrap();
         write_note_file(&folder, "a", "A v2", "v2");
 
@@ -318,11 +314,9 @@ mod tests {
         assert_eq!(summary.updated, 1, "stale mtime must trigger an update");
         let name: String = index
             .conn()
-            .query_row(
-                "SELECT name FROM entities WHERE file_id = 'a'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT name FROM entities WHERE file_id = 'a'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(name, "A v2");
     }

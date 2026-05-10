@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use eduport_core::index::writer::{reindex_all_properties, upsert_entity as index_upsert};
 use eduport_core::schema::{
-    EntitySchema, PatchableFields, Property, PropertyKind, Schema, SchemaStoreError,
-    SelectOption, SingleSelectProperty,
+    EntitySchema, PatchableFields, Property, PropertyKind, Schema, SchemaStoreError, SelectOption,
+    SingleSelectProperty,
 };
 use eduport_core::EntityType;
 use serde::{Deserialize, Serialize};
@@ -100,9 +100,7 @@ pub struct PurgeSkip {
 
 /// Return the full schema (all eight types + their properties).
 #[tauri::command]
-pub fn core_schema_get(
-    state: State<'_, EduportStateHandle>,
-) -> Result<Schema, CommandError> {
+pub fn core_schema_get(state: State<'_, EduportStateHandle>) -> Result<Schema, CommandError> {
     let st = require_state(&state)?;
     Ok(st.schema_store.current()?)
 }
@@ -152,7 +150,9 @@ pub fn core_schema_patch_property(
         options: patch.options,
         target_types: patch.target_types,
     };
-    let schema = st.schema_store.patch_property(entity_type, &key, patchable)?;
+    let schema = st
+        .schema_store
+        .patch_property(entity_type, &key, patchable)?;
     reindex(&st, &schema)?;
     Ok(schema.for_type(entity_type).clone())
 }
@@ -184,7 +184,9 @@ pub fn core_schema_reorder_properties(
     ordered_keys: Vec<String>,
 ) -> Result<EntitySchema, CommandError> {
     let st = require_state(&state)?;
-    let schema = st.schema_store.reorder_properties(entity_type, &ordered_keys)?;
+    let schema = st
+        .schema_store
+        .reorder_properties(entity_type, &ordered_keys)?;
     Ok(schema.for_type(entity_type).clone())
 }
 
@@ -203,12 +205,7 @@ pub fn core_schema_apply_tier_template(
 
     for et in types {
         if schema.for_type(et).property("tier").is_some() {
-            results.insert(
-                et.to_string(),
-                TierStatus {
-                    status: "exists",
-                },
-            );
+            results.insert(et.to_string(), TierStatus { status: "exists" });
             continue;
         }
         let prop = Property::SingleSelect(SingleSelectProperty {
@@ -236,12 +233,7 @@ pub fn core_schema_apply_tier_template(
             default: None,
         });
         schema = st.schema_store.add_property(et, prop)?;
-        results.insert(
-            et.to_string(),
-            TierStatus {
-                status: "added",
-            },
-        );
+        results.insert(et.to_string(), TierStatus { status: "added" });
     }
 
     reindex(&st, &schema)?;

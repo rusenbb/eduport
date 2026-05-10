@@ -110,7 +110,6 @@ pub fn core_filter_entities_by_properties(
     };
 
     let index = st.index.lock().expect("index mutex poisoned");
-    let rows: Vec<EntitySummary> =
-        filter_entities_by_properties(index.conn(), entity_type, &pf)?;
+    let rows: Vec<EntitySummary> = filter_entities_by_properties(index.conn(), entity_type, &pf)?;
     Ok(rows.into_iter().map(Into::into).collect())
 }

@@ -47,11 +47,7 @@ fn core_bootstrap_status(
     state: tauri::State<EduportStateHandle>,
 ) -> Result<BootstrapStatus, String> {
     let path = settings_path(&app)?;
-    let core_ready = state
-        .lock()
-        .ok()
-        .map(|g| g.is_some())
-        .unwrap_or(false);
+    let core_ready = state.lock().ok().map(|g| g.is_some()).unwrap_or(false);
     Ok(BootstrapStatus {
         settings_exists: path.exists(),
         settings_path: path.to_string_lossy().into_owned(),

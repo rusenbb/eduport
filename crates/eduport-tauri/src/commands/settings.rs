@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use eduport_core::{Settings, load_settings, save_settings};
+use eduport_core::{load_settings, save_settings, Settings};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 

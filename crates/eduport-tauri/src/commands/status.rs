@@ -34,9 +34,7 @@ pub struct TagCount {
 /// Whole-app health check. Returns counts the frontend uses to show
 /// "N entities, M parse errors" in the status bar.
 #[tauri::command]
-pub fn core_get_status(
-    state: State<'_, EduportStateHandle>,
-) -> Result<AppStatus, CommandError> {
+pub fn core_get_status(state: State<'_, EduportStateHandle>) -> Result<AppStatus, CommandError> {
     let st = require_state(&state)?;
     let index = st.index.lock().expect("index mutex poisoned");
     let entities: i64 = index
@@ -115,9 +113,7 @@ pub fn core_get_counts(
 /// internal discriminator tags are suppressed — the frontend
 /// surfaces only user-meaningful tags.
 #[tauri::command]
-pub fn core_get_tags(
-    state: State<'_, EduportStateHandle>,
-) -> Result<Vec<TagCount>, CommandError> {
+pub fn core_get_tags(state: State<'_, EduportStateHandle>) -> Result<Vec<TagCount>, CommandError> {
     let st = require_state(&state)?;
     let index = st.index.lock().expect("index mutex poisoned");
     let mut stmt = index

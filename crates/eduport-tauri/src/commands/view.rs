@@ -7,7 +7,7 @@
 //! everything else verbatim.
 
 use eduport_core::view::store::ViewStoreError;
-use eduport_core::view::types::{SortDir, View, ViewFilter, ViewKind, ViewsFile, TypeViews};
+use eduport_core::view::types::{SortDir, TypeViews, View, ViewFilter, ViewKind, ViewsFile};
 use eduport_core::EntityType;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -64,9 +64,7 @@ pub struct ViewMutationResult {
 }
 
 #[tauri::command]
-pub fn core_view_get_all(
-    state: State<'_, EduportStateHandle>,
-) -> Result<ViewsFile, CommandError> {
+pub fn core_view_get_all(state: State<'_, EduportStateHandle>) -> Result<ViewsFile, CommandError> {
     let st = require_state(&state)?;
     Ok(st.view_store.current()?)
 }

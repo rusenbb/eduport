@@ -167,50 +167,46 @@ impl Watcher {
         let on_event = Arc::new(on_event);
         let folder_to_kind_for_worker = Arc::clone(&folder_to_kind);
 
-        let mut debouncer = new_debouncer(
-            debounce,
-            None,
-            move |result: DebounceEventResult| {
-                let events = match result {
-                    Ok(evs) => evs,
-                    Err(_errors) => {
-                        // Lost events — ask the consumer for a full
-                        // rescan rather than silently going stale.
-                        on_event(VaultEvent::NeedsRescan);
-                        return;
-                    }
-                };
+        let mut debouncer = new_debouncer(debounce, None, move |result: DebounceEventResult| {
+            let events = match result {
+                Ok(evs) => evs,
+                Err(_errors) => {
+                    // Lost events — ask the consumer for a full
+                    // rescan rather than silently going stale.
+                    on_event(VaultEvent::NeedsRescan);
+                    return;
+                }
+            };
 
-                for ev in events {
-                    if matches!(ev.event.kind, EventKind::Other) {
-                        // notify::EventKind::Other is the rescan
-                        // signal on backends that batch (Linux's
-                        // inotify queue overflow, macOS fsevent
-                        // coalescing).
-                        on_event(VaultEvent::NeedsRescan);
-                        continue;
-                    }
-                    for path in &ev.event.paths {
-                        if let Some(vault_event) = classify(
-                            path,
-                            ev.event.kind,
-                            &folder_to_kind_for_worker,
-                            &config_dir_owned,
-                        ) {
-                            // Self-write filter — drop the event if
-                            // we wrote this path ourselves recently.
-                            let mut w = self_writes_for_worker.lock().unwrap();
-                            sweep_expired(&mut w);
-                            if w.contains_key(path) {
-                                continue;
-                            }
-                            drop(w);
-                            on_event(vault_event);
+            for ev in events {
+                if matches!(ev.event.kind, EventKind::Other) {
+                    // notify::EventKind::Other is the rescan
+                    // signal on backends that batch (Linux's
+                    // inotify queue overflow, macOS fsevent
+                    // coalescing).
+                    on_event(VaultEvent::NeedsRescan);
+                    continue;
+                }
+                for path in &ev.event.paths {
+                    if let Some(vault_event) = classify(
+                        path,
+                        ev.event.kind,
+                        &folder_to_kind_for_worker,
+                        &config_dir_owned,
+                    ) {
+                        // Self-write filter — drop the event if
+                        // we wrote this path ourselves recently.
+                        let mut w = self_writes_for_worker.lock().unwrap();
+                        sweep_expired(&mut w);
+                        if w.contains_key(path) {
+                            continue;
                         }
+                        drop(w);
+                        on_event(vault_event);
                     }
                 }
-            },
-        )?;
+            }
+        })?;
 
         // Watch every entity-type folder. Each one's a sibling at the
         // vault root; we don't recurse below the entity folder
@@ -350,7 +346,10 @@ mod tests {
         for kind in EntityType::ALL {
             map.insert(tmp.path().join(folder_map.folder_for(kind)), kind);
         }
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join("hello.md");
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join("hello.md");
         let ev = classify(
             &path,
             EventKind::Create(notify::event::CreateKind::File),
@@ -371,30 +370,46 @@ mod tests {
     fn classify_skips_non_md_under_entity_folder() {
         let (tmp, folder_map) = setup_vault();
         let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(tmp.path().join(folder_map.folder_for(EntityType::Note)), EntityType::Note);
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join("README.txt");
-        assert!(classify(
-            &path,
-            EventKind::Create(notify::event::CreateKind::File),
-            &map,
-            &tmp.path().join(EDUPORT_CONFIG_DIR),
-        )
-        .is_none());
+        map.insert(
+            tmp.path().join(folder_map.folder_for(EntityType::Note)),
+            EntityType::Note,
+        );
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join("README.txt");
+        assert!(
+            classify(
+                &path,
+                EventKind::Create(notify::event::CreateKind::File),
+                &map,
+                &tmp.path().join(EDUPORT_CONFIG_DIR),
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn classify_skips_hidden_files() {
         let (tmp, folder_map) = setup_vault();
         let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(tmp.path().join(folder_map.folder_for(EntityType::Note)), EntityType::Note);
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join(".swp");
-        assert!(classify(
-            &path,
-            EventKind::Create(notify::event::CreateKind::File),
-            &map,
-            &tmp.path().join(EDUPORT_CONFIG_DIR),
-        )
-        .is_none());
+        map.insert(
+            tmp.path().join(folder_map.folder_for(EntityType::Note)),
+            EntityType::Note,
+        );
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join(".swp");
+        assert!(
+            classify(
+                &path,
+                EventKind::Create(notify::event::CreateKind::File),
+                &map,
+                &tmp.path().join(EDUPORT_CONFIG_DIR),
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -405,7 +420,9 @@ mod tests {
         let path = config.join(SCHEMA_FILENAME);
         let ev = classify(
             &path,
-            EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Any)),
+            EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )),
             &map,
             &config,
         )
@@ -433,8 +450,14 @@ mod tests {
     fn classify_remove_emits_entity_deleted() {
         let (tmp, folder_map) = setup_vault();
         let mut map: HashMap<PathBuf, EntityType> = HashMap::new();
-        map.insert(tmp.path().join(folder_map.folder_for(EntityType::Note)), EntityType::Note);
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join("gone.md");
+        map.insert(
+            tmp.path().join(folder_map.folder_for(EntityType::Note)),
+            EntityType::Note,
+        );
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join("gone.md");
         let ev = classify(
             &path,
             EventKind::Remove(notify::event::RemoveKind::File),
@@ -483,7 +506,10 @@ mod tests {
         )
         .expect("start watcher");
 
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join("hi.md");
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join("hi.md");
         fs::write(&path, "---\nname: Hi\ntags:\n  - eduport-type/note\n---\n").unwrap();
 
         let ev = recv_within(&rx, Duration::from_secs(2))
@@ -511,13 +537,22 @@ mod tests {
         )
         .expect("start watcher");
 
-        let path = tmp.path().join(folder_map.folder_for(EntityType::Note)).join("self.md");
+        let path = tmp
+            .path()
+            .join(folder_map.folder_for(EntityType::Note))
+            .join("self.md");
         watcher.note_self_write(&path);
-        fs::write(&path, "---\nname: Self\ntags:\n  - eduport-type/note\n---\n").unwrap();
+        fs::write(
+            &path,
+            "---\nname: Self\ntags:\n  - eduport-type/note\n---\n",
+        )
+        .unwrap();
 
         // Should not receive any event within a reasonable window.
-        assert!(recv_within(&rx, Duration::from_millis(500)).is_none(),
-            "self-write should suppress the watcher event");
+        assert!(
+            recv_within(&rx, Duration::from_millis(500)).is_none(),
+            "self-write should suppress the watcher event"
+        );
     }
 
     #[test]

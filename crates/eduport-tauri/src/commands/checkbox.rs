@@ -51,9 +51,7 @@ pub fn core_checkbox_toggle(
                 [&body.file_id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(|_| {
-                CommandError::not_found(format!("no entity {:?}", body.file_id))
-            })?
+            .map_err(|_| CommandError::not_found(format!("no entity {:?}", body.file_id)))?
     };
     let kind: eduport_core::EntityType = kind_str
         .parse()
@@ -130,7 +128,9 @@ fn toggle_body_line(body: &str, line_no: usize, checked: bool) -> Result<String,
     }
     let target = lines[line_no - 1];
     let replaced = replace_checkbox_marker(target, checked).ok_or_else(|| {
-        CommandError::invalid(format!("line {line_no} does not contain a `[ ]` or `[x]` marker"))
+        CommandError::invalid(format!(
+            "line {line_no} does not contain a `[ ]` or `[x]` marker"
+        ))
     })?;
     let mut out = String::with_capacity(body.len());
     for (i, l) in lines.iter().enumerate() {

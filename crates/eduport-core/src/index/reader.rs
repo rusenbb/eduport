@@ -246,7 +246,8 @@ pub fn filter_entities_by_properties(
         }
     }
 
-    let mut sql = String::from("SELECT e.file_id, e.type, e.name, e.path, e.mtime_ns FROM entities e ");
+    let mut sql =
+        String::from("SELECT e.file_id, e.type, e.name, e.path, e.mtime_ns FROM entities e ");
     if !joins.is_empty() {
         sql.push_str(&joins.join(" "));
         sql.push(' ');
@@ -263,9 +264,8 @@ pub fn filter_entities_by_properties(
     // Splice into a single param list in the order the placeholders
     // appear in the final SQL: joins first (textually before WHERE),
     // then where params.
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::with_capacity(
-        join_params.len() + where_params.len(),
-    );
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> =
+        Vec::with_capacity(join_params.len() + where_params.len());
     params.extend(join_params);
     params.extend(where_params);
 
@@ -336,7 +336,11 @@ pub fn property_value_counts(
     for (kind, text, num, multi, count) in rows {
         match kind.as_str() {
             "checkbox" => {
-                let v = if num.unwrap_or(0.0) == 1.0 { "true" } else { "false" };
+                let v = if num.unwrap_or(0.0) == 1.0 {
+                    "true"
+                } else {
+                    "false"
+                };
                 *buckets.entry(("checkbox".into(), v.into())).or_insert(0) += count;
             }
             "multi-select" => {
@@ -519,15 +523,14 @@ mod tests {
     fn property_filter_text_equals() {
         let index = Index::open_in_memory().expect("open");
         let mut schema = empty_schema();
-        schema.types.get_mut(&EntityType::Note).unwrap().properties = vec![Property::Text(
-            TextProperty {
+        schema.types.get_mut(&EntityType::Note).unwrap().properties =
+            vec![Property::Text(TextProperty {
                 key: "country".into(),
                 name: "Country".into(),
                 description: None,
                 required: false,
                 default: None,
-            },
-        )];
+            })];
         for (i, country) in ["USA", "UK", "USA"].iter().enumerate() {
             let mut n = Note {
                 name: format!("n{i}"),
@@ -563,8 +566,8 @@ mod tests {
         use crate::schema::{MultiSelectProperty, SelectOption};
         let index = Index::open_in_memory().expect("open");
         let mut schema = empty_schema();
-        schema.types.get_mut(&EntityType::Note).unwrap().properties = vec![Property::MultiSelect(
-            MultiSelectProperty {
+        schema.types.get_mut(&EntityType::Note).unwrap().properties =
+            vec![Property::MultiSelect(MultiSelectProperty {
                 key: "topics".into(),
                 name: "Topics".into(),
                 description: None,
@@ -582,8 +585,7 @@ mod tests {
                     },
                 ],
                 default: None,
-            },
-        )];
+            })];
 
         let topics_for = |topics: &[&str]| -> serde_yaml::Value {
             serde_yaml::Value::Sequence(
@@ -618,8 +620,7 @@ mod tests {
             .unwrap();
         }
 
-        let counts =
-            property_value_counts(index.conn(), EntityType::Note, "topics").unwrap();
+        let counts = property_value_counts(index.conn(), EntityType::Note, "topics").unwrap();
         let map: std::collections::HashMap<String, i64> =
             counts.into_iter().map(|c| (c.value, c.count)).collect();
         assert_eq!(map.get("rust"), Some(&2));
