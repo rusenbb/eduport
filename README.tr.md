@@ -2,7 +2,7 @@
 
 [English](README.md) · **Türkçe**
 
-<img src="src-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
+<img src="crates/eduport-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
 
 Üniversite başvurularını, programları, kişileri, laboratuvarları ve bunları birbirine bağlayan belgeler ile e-postaları takip eden tek kullanıcılı bir masaüstü uygulaması. Veriler düz Markdown + YAML olarak diskte saklanır — Dropbox / iCloud / Syncthing ile senkronize edilebilir, uygulamanın yanında doğrudan Obsidian'da düzenlenebilir.
 
@@ -57,11 +57,14 @@
 ## Proje yapısı
 
 ```
-docs/                tasarım belgesi, paketleme notları, uygulama planları
-frontend/            SvelteKit uygulaması — UI + API istemcisi
-scripts/             derleme yardımcıları (sidecar paketleme, Tauri ön gereksinimleri)
-sidecar/             Python (FastAPI) — uv ile yönetilen proje
-src-tauri/           Rust kabuk (Tauri 2) — giriş noktası + yerel köprüler
+Cargo.toml                     workspace manifest
+crates/
+  eduport-core/                Rust kütüphane — alan mantığı, şema, FTS5, izleyici (Faz 4+)
+  eduport-tauri/               Rust kabuk (Tauri 2) — giriş noktası + yerel köprüler
+docs/                          tasarım belgesi, paketleme notları, uygulama planları
+frontend/                      SvelteKit uygulaması — UI + API istemcisi
+scripts/                       derleme yardımcıları (sidecar paketleme, Tauri ön gereksinimleri)
+sidecar/                       Python (FastAPI) — yeniden yazma Faz 11'de kaldırılacak
 ```
 
 ## Ön koşullar
@@ -106,7 +109,7 @@ Gerçek bir kurulabilir uygulamaya en hızlı yol paketleme betiğidir — Pytho
 python3 scripts/build_desktop.py
 ```
 
-Linux'ta `src-tauri/target/release/bundle/` altında `.deb` ve `.rpm` üretir. Kurulum için `sudo apt install ./src-tauri/target/release/bundle/deb/eduport_*.deb` (veya dağıtımınızın eşdeğerini) kullanın. Gelişmiş bundle hedefleri ve CI notları için bkz. [docs/packaging.md](docs/packaging.md).
+Linux'ta `target/release/bundle/` altında `.deb` ve `.rpm` üretir. Kurulum için `sudo apt install ./target/release/bundle/deb/eduport_*.deb` (veya dağıtımınızın eşdeğerini) kullanın. Gelişmiş bundle hedefleri ve CI notları için bkz. [docs/packaging.md](docs/packaging.md).
 
 ## Testler ve kontroller
 
@@ -129,4 +132,4 @@ npm run check
 
 ## Lisans
 
-MIT (`src-tauri/Cargo.toml` içinde belirtildiği gibi). Bağımsız bir `LICENSE` dosyası yapılacaklar listesinde.
+MIT (workspace `Cargo.toml` içinde belirtildiği gibi). Bağımsız bir `LICENSE` dosyası yapılacaklar listesinde.

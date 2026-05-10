@@ -5,7 +5,7 @@
 		item,
 		type,
 		selected = false,
-		summary = item.file_id,
+		summary = '',
 		onclick
 	}: {
 		item: EntityListItem;
@@ -23,7 +23,9 @@
 >
 	<div class="min-w-0">
 		<div class="truncate font-medium">{item.name}</div>
-		<div class="truncate text-xs text-[var(--color-muted)]">{summary || item.file_id}</div>
+		{#if summary}
+			<div class="truncate text-xs text-[var(--color-muted)]">{summary}</div>
+		{/if}
 	</div>
 	<div class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">{type}</div>
 </button>

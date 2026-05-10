@@ -23,7 +23,7 @@
 		</button>
 	{/if}
 
-	{#if !$status.sidecarUp && $status.lastChecked > 0}
+	{#if !$status.coreUp && $status.lastChecked > 0}
 		<span class="rounded bg-red-900/40 px-2 py-1 text-[10px] text-[var(--color-bad)]">Backend offline</span>
 	{:else if $status.parseErrors > 0}
 		<a href="/status" class="rounded bg-yellow-900/30 px-2 py-1 text-[10px] text-[var(--color-warn)] hover:bg-yellow-900/50">

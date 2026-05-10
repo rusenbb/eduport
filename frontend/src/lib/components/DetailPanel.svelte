@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { getEntity, listEntities } from '$lib/api/entities';
+	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
+	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
 	import { cloneFileToFolder, openInObsidian, openPath, revealInFileManager, saveCopyAs } from '$lib/tauri';
 	import type { EntityDetail } from '$lib/types';
+	import { onMount } from 'svelte';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
+	import PropertyConfigDialog from './properties/PropertyConfigDialog.svelte';
+	import PropertyEditor from './properties/PropertyEditor.svelte';
+	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
+	import PropertyValue from './properties/PropertyValue.svelte';
+	import PropertyWarningChip from './properties/PropertyWarningChip.svelte';
 
 	let {
 		detail,
@@ -110,9 +117,73 @@
 		await openInObsidian(vault, `${detail.file_id}.md`);
 	}
 
-	const fields = $derived(
-		Object.entries(detail.entity).filter(([k]) => k !== 'name' && k !== 'tags')
+	// Build the list of custom-property keys for this entity type from the schema
+	// and split the entity's frontmatter into "built-in" fields (rendered by the
+	// existing DetailField component) vs "custom" fields (rendered with
+	// PropertyValue / PropertyEditor below).
+	const customPropertiesForType = $derived(
+		$schemaStore.schema?.types[detail.type]?.properties ?? []
 	);
+	const customKeys = $derived(new Set(customPropertiesForType.map((p) => p.key)));
+	const builtinKeys = $derived(
+		new Set($schemaStore.schema?.types[detail.type]?.builtin_keys ?? [])
+	);
+
+	const fields = $derived(
+		Object.entries(detail.entity).filter(
+			([k]) => k !== 'name' && k !== 'tags' && !customKeys.has(k)
+		)
+	);
+
+	// Inline editing — one property at a time.
+	let editingKey: string | null = $state(null);
+	let editingValue: unknown = $state(undefined);
+
+	function startEdit(key: string, currentValue: unknown) {
+		editingKey = key;
+		editingValue = currentValue ?? null;
+	}
+
+	function cancelEdit() {
+		editingKey = null;
+		editingValue = undefined;
+	}
+
+	async function commitEdit() {
+		if (editingKey === null) return;
+		const key = editingKey;
+		const next = editingValue;
+		const newFm: Record<string, unknown> = { ...(detail.entity as Record<string, unknown>) };
+		// Drop empty values rather than writing nulls — keeps YAML clean.
+		if (next === null || next === undefined || next === '' ||
+			(Array.isArray(next) && next.length === 0)) {
+			delete newFm[key];
+		} else {
+			newFm[key] = next;
+		}
+		try {
+			await updateEntity(detail.type, detail.file_id, newFm, detail.body);
+			editingKey = null;
+			editingValue = undefined;
+			// Refetch to pick up new value_warnings.
+			const fresh = await getEntity(detail.type, detail.file_id);
+			detail.entity = fresh.entity;
+			detail.value_warnings = fresh.value_warnings;
+		} catch (e) {
+			alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	onMount(() => {
+		// Make sure the schema is loaded so we can render custom properties.
+		void schemaStore.load();
+	});
+
+	function warningsForKey(key: string) {
+		return (detail.value_warnings ?? []).filter((w) => w.key === key);
+	}
+
+	let addingProperty = $state(false);
 
 	const tags = $derived(
 		Array.isArray(detail.entity.tags)
@@ -267,6 +338,119 @@
 			<DetailField {name} {value} />
 		{/each}
 	</div>
+
+	{#if customPropertiesForType.length > 0}
+		<div class="border-t border-[var(--color-border)] px-4 py-3">
+			<h3 class="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+				Properties
+			</h3>
+			<div class="grid gap-2">
+				{#each customPropertiesForType as prop}
+					{@const value = (detail.entity as Record<string, unknown>)[prop.key]}
+					{@const warnings = warningsForKey(prop.key)}
+					<div class="grid grid-cols-[120px_1fr_auto] items-start gap-3">
+						<div class="flex flex-col text-xs">
+							<span class="flex items-center gap-1 font-medium">
+								<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
+								<span>{prop.name}</span>
+							</span>
+							{#if prop.description}
+								<span class="text-[10px] text-[var(--color-muted)]">{prop.description}</span>
+							{/if}
+						</div>
+						<div class="flex min-w-0 flex-wrap items-center gap-2">
+							{#if editingKey === prop.key}
+								<div class="min-w-0 flex-1">
+									<PropertyEditor {prop} bind:value={editingValue} />
+								</div>
+							{:else}
+								<PropertyValue {prop} {value} />
+							{/if}
+							{#each warnings as w}
+								<PropertyWarningChip warning={w} />
+							{/each}
+						</div>
+						<div class="flex flex-shrink-0 gap-1 text-[10px]">
+							{#if editingKey === prop.key}
+								<button
+									class="rounded border border-blue-700 bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
+									onclick={commitEdit}
+								>
+									Save
+								</button>
+								<button
+									class="rounded border border-[var(--color-border)] px-2 py-1 hover:bg-white/5"
+									onclick={cancelEdit}
+								>
+									Cancel
+								</button>
+							{:else}
+								<button
+									class="rounded border border-[var(--color-border)] px-2 py-1 hover:bg-white/5"
+									onclick={() => startEdit(prop.key, value)}
+								>
+									Edit
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+			<div class="mt-3 flex gap-3 text-[10px]">
+				<button
+					class="text-[var(--color-muted)] underline hover:text-[var(--color-text)]"
+					onclick={() => (addingProperty = true)}
+				>
+					+ Add property
+				</button>
+				<a
+					href="/settings/schema?type={detail.type}"
+					class="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+				>
+					Manage in schema editor →
+				</a>
+			</div>
+		</div>
+	{/if}
+
+	{#if addingProperty}
+		<PropertyConfigDialog
+			entityType={detail.type}
+			mode="add"
+			existing={null}
+			onCancel={() => (addingProperty = false)}
+			onSaved={async () => {
+				addingProperty = false;
+				const fresh = await getEntity(detail.type, detail.file_id);
+				detail.entity = fresh.entity;
+				detail.value_warnings = fresh.value_warnings;
+			}}
+		/>
+	{/if}
+
+	{#if (detail.value_warnings ?? []).length > 0}
+		{@const orphaned = (detail.value_warnings ?? []).filter((w) => w.kind === 'orphaned')}
+		{#if orphaned.length > 0}
+			<div class="border-t border-[var(--color-border)] px-4 py-3">
+				<h3 class="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+					Orphaned values
+				</h3>
+				<div class="grid gap-1">
+					{#each orphaned as w}
+						<div class="flex items-center gap-2 text-xs">
+							<PropertyWarningChip warning={w} />
+							<span class="text-[var(--color-muted)]">{w.key}</span>
+						</div>
+					{/each}
+				</div>
+				<p class="mt-1 text-[10px] text-[var(--color-muted)]">
+					These keys aren't declared in the schema. Add them as a property in
+					<a class="underline" href="/settings/schema?type={detail.type}">Schema</a>
+					to use them, or edit the file to remove.
+				</p>
+			</div>
+		{/if}
+	{/if}
 
 	{#if localBody.trim().length > 0}
 		<div class="border-t border-[var(--color-border)] px-4 py-3">

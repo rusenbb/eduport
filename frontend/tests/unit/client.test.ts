@@ -1,56 +1,48 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiFetch } from '../../src/lib/api/client';
+import { describe, expect, it, vi } from 'vitest';
+import { CoreCommandError, coreInvoke } from '../../src/lib/api/client';
 
-describe('apiFetch', () => {
-	const fetchMock = vi.fn();
+// The legacy `apiFetch` (HTTP transport to the Python sidecar) was
+// removed in rewrite phase 11. The `coreInvoke` helper is now the
+// only transport. The tests here exercise its error-folding
+// behaviour against a stubbed `@tauri-apps/api/core::invoke`.
 
-	beforeEach(() => {
-		vi.stubGlobal('fetch', fetchMock);
-		vi.stubEnv('VITE_SIDECAR_URL', 'http://test.local:9999');
+vi.mock('@tauri-apps/api/core', () => ({
+	invoke: vi.fn()
+}));
+
+describe('coreInvoke', () => {
+	it('returns the resolved value when invoke succeeds', async () => {
+		const mod = await import('@tauri-apps/api/core');
+		(mod.invoke as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: 1 });
+		await expect(coreInvoke('core_get_status')).resolves.toEqual({ ok: 1 });
 	});
 
-	afterEach(() => {
-		fetchMock.mockReset();
-		vi.unstubAllEnvs();
-		vi.unstubAllGlobals();
-	});
-
-	it('prepends base URL and parses JSON on success', async () => {
-		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ ok: 1 }), {
-				status: 200,
-				headers: { 'Content-Type': 'application/json' }
-			})
-		);
-		const result = await apiFetch('/health');
-		expect(fetchMock).toHaveBeenCalledWith(
-			'http://test.local:9999/health',
-			expect.any(Object)
-		);
-		expect(result).toEqual({ ok: 1 });
-	});
-
-	it('throws ApiError with detail message on 4xx', async () => {
-		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ detail: 'not found' }), {
-				status: 404,
-				headers: { 'Content-Type': 'application/json' }
-			})
-		);
-		let caught: unknown = null;
+	it('wraps a structured error into CoreCommandError preserving the code', async () => {
+		const mod = await import('@tauri-apps/api/core');
+		(mod.invoke as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+			code: 'not_found',
+			message: 'no such entity'
+		});
 		try {
-			await apiFetch('/missing');
+			await coreInvoke('core_entity_get');
+			throw new Error('expected coreInvoke to reject');
 		} catch (err) {
-			caught = err;
+			expect(err).toBeInstanceOf(CoreCommandError);
+			expect((err as CoreCommandError).code).toBe('not_found');
+			expect((err as CoreCommandError).message).toBe('no such entity');
 		}
-		expect(caught).toBeInstanceOf(ApiError);
-		expect((caught as ApiError).status).toBe(404);
-		expect((caught as ApiError).message).toBe('not found');
 	});
 
-	it('returns undefined on 204', async () => {
-		fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-		const result = await apiFetch('/something', { method: 'DELETE' });
-		expect(result).toBeUndefined();
+	it('folds bare-string errors (Rust panic surfaces) into the internal code', async () => {
+		const mod = await import('@tauri-apps/api/core');
+		(mod.invoke as ReturnType<typeof vi.fn>).mockRejectedValueOnce('something exploded');
+		try {
+			await coreInvoke('core_search');
+			throw new Error('expected coreInvoke to reject');
+		} catch (err) {
+			expect(err).toBeInstanceOf(CoreCommandError);
+			expect((err as CoreCommandError).code).toBe('internal');
+			expect((err as CoreCommandError).message).toBe('something exploded');
+		}
 	});
 });

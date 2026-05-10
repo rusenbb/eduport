@@ -1,19 +1,21 @@
 // Thin wrappers around Tauri APIs that no-op in the browser dev server.
 // Detection follows Tauri 2's runtime: window.__TAURI_INTERNALS__ exists
 // when running inside a Tauri WebView.
+
+import { putSettings } from './api/settings';
 import type { Settings } from './types';
 
 declare global {
 	interface Window {
 		__TAURI_INTERNALS__?: unknown;
-		__EDUPORT_API_URL__?: string;
 	}
 }
 
 export interface BootstrapStatus {
 	settings_exists: boolean;
 	settings_path: string;
-	sidecar_url: string | null;
+	/** True once the Rust state has finished its boot reconcile. */
+	core_ready: boolean;
 }
 
 export function isTauri(): boolean {
@@ -29,35 +31,20 @@ export async function revealInFileManager(path: string): Promise<void> {
 	await invoke('reveal_in_file_manager', { path });
 }
 
-function rememberSidecarUrl(url: string | null | undefined): string | null {
-	if (url && typeof window !== 'undefined') {
-		window.__EDUPORT_API_URL__ = url;
-		return url;
-	}
-	return url ?? null;
-}
-
 export async function getBootstrapStatus(): Promise<BootstrapStatus | null> {
 	if (!isTauri()) return null;
 	const { invoke } = await import('@tauri-apps/api/core');
-	const status = await invoke<BootstrapStatus>('get_bootstrap_status');
-	rememberSidecarUrl(status.sidecar_url);
-	return status;
+	return invoke<BootstrapStatus>('core_bootstrap_status');
 }
 
-export async function ensureSidecarUrl(): Promise<string | null> {
-	if (typeof window !== 'undefined' && window.__EDUPORT_API_URL__) {
-		return window.__EDUPORT_API_URL__;
-	}
-	if (!isTauri()) return null;
-	const { invoke } = await import('@tauri-apps/api/core');
-	return rememberSidecarUrl(await invoke<string>('ensure_sidecar_started'));
-}
-
-export async function bootstrapSettings(settings: Settings): Promise<string | null> {
-	if (!isTauri()) return null;
-	const { invoke } = await import('@tauri-apps/api/core');
-	return rememberSidecarUrl(await invoke<string>('bootstrap_settings', { settings }));
+/**
+ * First-run setup: persist settings and boot the Rust eduport-core
+ * state (which `core_settings_put` does atomically). Replaces the
+ * old `bootstrap_settings` Tauri command, which used to spawn the
+ * Python sidecar — gone since rewrite phase 11.
+ */
+export async function bootstrapSettings(settings: Settings): Promise<Settings> {
+	return putSettings(settings);
 }
 
 export async function setAppZoom(zoomFactor: number): Promise<void> {

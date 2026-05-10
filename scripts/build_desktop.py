@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +20,15 @@ def run(command: list[str], cwd: Path = REPO) -> None:
 
 
 def main() -> int:
-    # Tauri runs scripts/build_tauri_prereqs.py through beforeBuildCommand.
+    # 1. Build the SvelteKit frontend bundle that Tauri embeds. We
+    #    used to run this through tauri.conf.json's `beforeBuildCommand`,
+    #    but the relative path Tauri resolves it from differs across
+    #    platforms (macOS runners broke). Running it explicitly here
+    #    keeps the cwd predictable.
+    npm = shutil.which("npm") or "npm"
+    run([npm, "--prefix", "frontend", "run", "build"])
+
+    # 2. Run tauri build.
     command = [str(TAURI), "build"]
     bundles = os.environ.get("TAURI_BUNDLES")
     if bundles:

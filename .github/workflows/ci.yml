@@ -1,0 +1,88 @@
+name: CI
+
+# Fast, cross-cutting CI that doesn't build a whole Tauri bundle.
+# Three jobs in parallel: Rust workspace tests + clippy, frontend
+# type-check + vitest, eduport-core publish dry-run.
+#
+# desktop-build.yml runs the heavy Tauri build on the same triggers;
+# this workflow exists so a manifest typo or a frontend type error
+# fails fast (~3 min) rather than waiting on a 15-min Tauri build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: cargo test + clippy + fmt
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # eduport-core depends on vaultdb-core via a relative path
+      # (../../../../researches/vaultdb/crates/vaultdb-core). On
+      # CI the runner only has the eduport tree by default, so we
+      # clone vaultdb side-by-side at the path the dep expects.
+      # Once vaultdb-core v1.0.0 is on crates.io, the `path +
+      # version` dep falls back to the registry automatically and
+      # this manual side-by-side step can go.
+      - name: Checkout vaultdb side-by-side
+        # The runner checks out eduport at
+        # /home/runner/work/eduport/eduport. The path-dep
+        # `../../../../researches/...` from
+        # crates/eduport-core/Cargo.toml resolves to
+        # /home/runner/work/researches/vaultdb — i.e. *two* levels
+        # above $GITHUB_WORKSPACE, not one. The mkdir + clone here
+        # mirror that exact target.
+        run: |
+          mkdir -p ../../researches
+          git clone --depth 1 https://github.com/rusenbb/vaultdb.git \
+            ../../researches/vaultdb
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      # `cargo clippy --workspace` compiles every member,
+      # including eduport-tauri → tauri → gdk-sys, which needs
+      # the GTK + WebKit dev libs to even configure. The
+      # desktop-build workflow already installs these for the
+      # full bundle build; here we mirror the same install so
+      # clippy can lint the Tauri shell.
+      - name: Install GTK + WebKit system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      # eduport-core depends on rusqlite/bundled, which compiles
+      # SQLite from source. The first run is slow (~2 min); the
+      # rust-cache action speeds subsequent runs to seconds.
+      - run: cargo test -p eduport-core --all-features
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
+
+  # The eduport-core publish dry-run is intentionally not part of
+  # CI yet. `cargo package` strips path-deps and resolves them
+  # via the registry, so until vaultdb-core v1.0.0 is on
+  # crates.io the dry-run can't succeed. Once vaultdb-core is
+  # published, add a `publish-dry-run` job here that runs
+  # `cargo publish --dry-run -p eduport-core`.
+
+  frontend:
+    name: svelte-check + vitest
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run check
+      - run: npm --prefix frontend exec vitest run

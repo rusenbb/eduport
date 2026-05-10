@@ -1,0 +1,45 @@
+[package]
+name = "eduport"
+description = "Eduport — university application tracker desktop shell"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition = "2021"
+rust-version = "1.77.2"
+
+# The lib name stays `eduport_lib` because main.rs and Tauri's bundle
+# pipeline both reference it. The package name stays `eduport` for the
+# same reason — the produced binary's name flows from it. Only the
+# crate's *folder* moves under crates/eduport-tauri/ as part of the
+# workspace conversion (Phase 4 of the rewrite spec).
+
+[lib]
+name = "eduport_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.1", features = [] }
+
+[dependencies]
+# Eduport's own domain layer over vaultdb-core. Adding this dep does
+# not yet *use* eduport-core — Phase 4 is structural-only. Subsequent
+# phases will progressively replace HTTP-sidecar calls with eduport-
+# core function calls.
+eduport-core = { path = "../eduport-core" }
+
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+# Used by command handlers to round-trip frontmatter through the
+# canonical YAML representation (matches what's on disk).
+serde_yaml = "0.9"
+log = "0.4"
+tauri = { version = "2.11.1", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+# Used for the `BootError` and per-command error enums under
+# core_state / commands. Same crate eduport-core uses, so consumers
+# see one error idiom across the workspace.
+thiserror = "2"

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/eduport-core",
+    "crates/eduport-tauri",
+]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+license = "MIT"
+authors = ["rusenbb"]
+repository = "https://github.com/rusenbb/eduport"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

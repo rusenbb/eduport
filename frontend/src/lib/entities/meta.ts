@@ -143,6 +143,49 @@ export function inferTypeFromField(field: string, fallback: EntityType = 'note')
 	return map[field] ?? fallback;
 }
 
+/**
+ * Map a built-in field's `kind` (Pydantic-typed) onto the closest
+ * `PropertyType` so the same `<PropertyTypeIcon>` covers both surfaces.
+ *
+ * The mapping is deliberately lossy: `email` → `text` (icon-wise it's just
+ * a string), `wikilinks` and `resources` → list-style icons (`relation` and
+ * `multi-select` respectively). The point isn't perfect fidelity, it's
+ * visual consistency between custom + built-in rows.
+ */
+export function builtinKindToPropertyType(
+	kind: FieldDef['kind']
+): import('$lib/types/schema').PropertyType {
+	switch (kind) {
+		case 'text':
+		case 'email':
+			return 'text';
+		case 'url':
+			return 'url';
+		case 'date':
+			return 'date';
+		case 'select':
+			return 'single-select';
+		case 'wikilink':
+			return 'relation';
+		case 'wikilinks':
+			return 'relation';
+		case 'resources':
+			return 'multi-select';
+	}
+}
+
+/** Display label for a built-in kind, mirroring the custom property types. */
+export const BUILTIN_KIND_LABELS: Record<FieldDef['kind'], string> = {
+	text: 'Text',
+	email: 'Email',
+	url: 'URL',
+	date: 'Date',
+	select: 'Single select',
+	wikilink: 'Relation',
+	wikilinks: 'Relations (list)',
+	resources: 'Resources (list)'
+};
+
 export function readField(entity: Record<string, unknown>, key: string): string {
 	const value = entity[key];
 	if (value === null || value === undefined) return '';
@@ -152,33 +195,39 @@ export function readField(entity: Record<string, unknown>, key: string): string 
 
 export function summarizeDetail(detail: EntityDetail): string {
 	const e = detail.entity;
+	const tags = userTags(e, detail.type);
+	const tagSummary = tags.length > 0 ? '#' + tags.join(' #') : '';
+	const join = (parts: (string | undefined | null)[]) =>
+		parts.filter((p): p is string => !!p && p.length > 0).join(' · ');
+
 	switch (detail.type) {
+		case 'university':
+			return join([readField(e, 'country'), readField(e, 'city'), tagSummary]);
+		case 'lab':
+			return join([readField(e, 'focus'), targetOf(e.university) ?? '', tagSummary]);
 		case 'program':
-			return [readField(e, 'level'), readField(e, 'deadline'), targetOf(e.university) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'level'), readField(e, 'deadline'), targetOf(e.university) ?? '']);
 		case 'application':
-			return [readField(e, 'status'), readField(e, 'internal_deadline'), targetOf(e.program) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([
+				readField(e, 'status'),
+				readField(e, 'internal_deadline'),
+				targetOf(e.program) ?? ''
+			]);
 		case 'person':
-			return [readField(e, 'role'), readField(e, 'email'), targetOf(e.university) ?? '']
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'role'), readField(e, 'email'), targetOf(e.university) ?? '']);
 		case 'document':
-			return [readField(e, 'status'), readField(e, 'date'), readField(e, 'file')]
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'status'), readField(e, 'date'), readField(e, 'file')]);
 		case 'email':
-			return [readField(e, 'direction'), readField(e, 'date'), readField(e, 'subject')]
-				.filter(Boolean)
-				.join(' · ');
+			return join([readField(e, 'direction'), readField(e, 'date'), readField(e, 'subject')]);
+		case 'note':
+			return tagSummary;
 		default:
-			return userTags(e, detail.type).join(' · ');
+			return tagSummary;
 	}
 }
 
 export function summarizeItem(item: EntityListItem, detail?: EntityDetail | null): string {
-	if (detail) return summarizeDetail(detail);
-	return item.file_id;
+	if (!detail) return ''; // file_id is the row's secondary line elsewhere; don't leak it as the "summary" placeholder
+	const summary = summarizeDetail(detail);
+	return summary;
 }

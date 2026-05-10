@@ -1,0 +1,43 @@
+[package]
+name = "eduport-core"
+description = "Eduport's domain layer — typed schema, FTS5, watcher, EML import — over vaultdb-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["eduport", "obsidian", "markdown", "vaultdb", "fts5"]
+categories = ["database", "filesystem"]
+readme = "../../README.md"
+
+[dependencies]
+# Path + version: local dev links via `path` (so co-development across
+# the two repos still works without publishing every change), while
+# `cargo publish` resolves the dependency by version on crates.io.
+# When the path is unreachable (consumers building eduport-core from
+# crates.io), cargo silently falls back to the version requirement.
+vaultdb-core = { path = "../../../../researches/vaultdb/crates/vaultdb-core", version = "1.0.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+thiserror = "2"
+tracing = "0.1"
+regex = "1"
+url = { version = "2", features = ["serde"] }
+rand = "0.8"
+mailparse = "0.16"
+html2text = "0.15"
+# `bundled` vendors a known-good SQLite (with FTS5 compiled in), removing the
+# system-SQLite version drift that bit the Python sidecar on certain Linux
+# distros. `serde_json` is reused for the FTS5-side frontmatter blob and for
+# JSON-encoded multi-select property values.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# The watcher uses notify with the debouncer-full overlay so we get
+# rename-aware event coalescing during sync storms (Dropbox/iCloud/Syncthing
+# can deliver hundreds of events per second on initial sync).
+notify = "8.2"
+notify-debouncer-full = "0.6"
+
+[dev-dependencies]
+tempfile = "3"
