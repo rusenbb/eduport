@@ -43,6 +43,18 @@ jobs:
           # otherwise checkout the tag that triggered the workflow.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      # eduport-core path-deps vaultdb-core (../../../../researches/
+      # vaultdb/...). Clone vaultdb side-by-side so the path resolves
+      # at compile time. Once eduport-core upgrades to the published
+      # vaultdb-core via crates.io, the path-dep falls back to
+      # registry resolution and this step can go.
+      - name: Checkout vaultdb side-by-side
+        shell: bash
+        run: |
+          mkdir -p ../../researches
+          git clone --depth 1 https://github.com/rusenbb/vaultdb.git \
+            ../../researches/vaultdb
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

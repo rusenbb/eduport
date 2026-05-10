@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # eduport-core path-deps vaultdb-core at a relative path
+      # (../../../../researches/vaultdb/...) — clone vaultdb
+      # side-by-side at the same relative location the runner
+      # would otherwise lack. Cross-platform shell so the step
+      # works on the Windows runner too.
+      - name: Checkout vaultdb side-by-side
+        shell: bash
+        run: |
+          mkdir -p ../../researches
+          git clone --depth 1 https://github.com/rusenbb/vaultdb.git \
+            ../../researches/vaultdb
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

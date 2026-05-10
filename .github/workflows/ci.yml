@@ -30,10 +30,17 @@ jobs:
       # version` dep falls back to the registry automatically and
       # this manual side-by-side step can go.
       - name: Checkout vaultdb side-by-side
+        # The runner checks out eduport at
+        # /home/runner/work/eduport/eduport. The path-dep
+        # `../../../../researches/...` from
+        # crates/eduport-core/Cargo.toml resolves to
+        # /home/runner/work/researches/vaultdb — i.e. *two* levels
+        # above $GITHUB_WORKSPACE, not one. The mkdir + clone here
+        # mirror that exact target.
         run: |
-          mkdir -p ../researches
+          mkdir -p ../../researches
           git clone --depth 1 https://github.com/rusenbb/vaultdb.git \
-            ../researches/vaultdb
+            ../../researches/vaultdb
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
