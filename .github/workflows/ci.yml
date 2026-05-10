@@ -45,6 +45,20 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      # `cargo clippy --workspace` compiles every member,
+      # including eduport-tauri → tauri → gdk-sys, which needs
+      # the GTK + WebKit dev libs to even configure. The
+      # desktop-build workflow already installs these for the
+      # full bundle build; here we mirror the same install so
+      # clippy can lint the Tauri shell.
+      - name: Install GTK + WebKit system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
       # eduport-core depends on rusqlite/bundled, which compiles
       # SQLite from source. The first run is slow (~2 min); the
       # rust-cache action speeds subsequent runs to seconds.
