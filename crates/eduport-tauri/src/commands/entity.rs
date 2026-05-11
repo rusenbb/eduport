@@ -202,25 +202,34 @@ pub fn core_entity_resolve(
     let st = require_state(&state)?;
     let index = st.index.lock().expect("index mutex poisoned");
     // Match against either the file_id (filename stem) or the entity
-    // name. The Python sidecar matched both via its parsers/wikilinks
-    // resolver — here we go through the index, which has both.
+    // name. Type comes from the FTS row's joined tags column —
+    // `eduport-type/<value>` is the discriminator. The bespoke
+    // `entities.type` SQL column went away when storage moved to the
+    // shared vaultdb-fts crate (which is type-agnostic on purpose).
     let mut matches: Vec<(String, String, String)> = Vec::new();
     let mut stmt = index
         .conn()
         .prepare(
-            "SELECT file_id, type, name FROM entities \
-             WHERE file_id = ?1 OR name = ?1",
+            "SELECT e.file_id, e.name, ef.tags \
+             FROM entities e \
+             JOIN entities_fts ef ON e.rowid = ef.rowid \
+             WHERE e.file_id = ?1 OR e.name = ?1",
         )
         .map_err(eduport_core::index::IndexError::from)?;
     let mut rows = stmt
         .query([&target])
         .map_err(eduport_core::index::IndexError::from)?;
     while let Some(row) = rows.next().map_err(eduport_core::index::IndexError::from)? {
-        matches.push((
-            row.get(0).map_err(eduport_core::index::IndexError::from)?,
-            row.get(1).map_err(eduport_core::index::IndexError::from)?,
-            row.get(2).map_err(eduport_core::index::IndexError::from)?,
-        ));
+        let file_id: String = row.get(0).map_err(eduport_core::index::IndexError::from)?;
+        let name: String = row.get(1).map_err(eduport_core::index::IndexError::from)?;
+        let tags: String = row.get(2).map_err(eduport_core::index::IndexError::from)?;
+        let Some(entity_type) = tags
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix("eduport-type/").map(String::from))
+        else {
+            continue;
+        };
+        matches.push((file_id, entity_type, name));
     }
     drop(rows);
     drop(stmt);
