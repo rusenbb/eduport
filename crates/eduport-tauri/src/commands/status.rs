@@ -46,7 +46,10 @@ pub fn core_get_status(state: State<'_, EduportStateHandle>) -> Result<AppStatus
     let records = root_records(&st)?;
     let entities = records.iter().filter(|r| is_entity(r)).count() as i64;
 
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     let parse_errors: i64 = index
         .conn()
         .query_row("SELECT COUNT(*) FROM parse_errors", [], |r| r.get(0))
@@ -63,7 +66,10 @@ pub fn core_list_parse_errors(
     state: State<'_, EduportStateHandle>,
 ) -> Result<Vec<ParseErrorItem>, CommandError> {
     let st = require_state(&state)?;
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     let mut stmt = index
         .conn()
         .prepare(

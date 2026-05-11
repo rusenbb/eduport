@@ -56,7 +56,12 @@ pub enum SchemaStoreError {
 
 impl From<SchemaStoreError> for EduportError {
     fn from(e: SchemaStoreError) -> Self {
-        EduportError::Schema(e.to_string())
+        match e {
+            SchemaStoreError::NotFound(m) => EduportError::NotFound(m),
+            SchemaStoreError::Conflict(m) => EduportError::Conflict(m),
+            SchemaStoreError::Invalid(m) => EduportError::Invalid(m),
+            SchemaStoreError::Eduport(e) => e,
+        }
     }
 }
 
@@ -100,7 +105,10 @@ impl SchemaStore {
     /// file doesn't exist yet. Subsequent `current()` calls return the
     /// cached value until [`reload`](Self::reload) or a mutation.
     pub fn load(&self) -> Result<Schema, EduportError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         let schema = self.load_locked()?;
         *guard = Some(schema.clone());
         Ok(schema)
@@ -108,7 +116,10 @@ impl SchemaStore {
 
     /// Force a re-read from disk, dropping the in-memory cache.
     pub fn reload(&self) -> Result<Schema, EduportError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         *guard = None;
         let schema = self.load_locked()?;
         *guard = Some(schema.clone());
@@ -117,7 +128,10 @@ impl SchemaStore {
 
     /// Return the cached schema; load if not yet cached.
     pub fn current(&self) -> Result<Schema, EduportError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         if let Some(s) = &*guard {
             return Ok(s.clone());
         }
@@ -141,7 +155,10 @@ impl SchemaStore {
         // from the seed module exclusively.
         force_clear_builtin(&mut prop);
         prop.validate().map_err(SchemaStoreError::Invalid)?;
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         let mut schema = match &*guard {
             Some(s) => s.clone(),
             None => self.load_locked()?,
@@ -167,7 +184,10 @@ impl SchemaStore {
         key: &str,
         patch: PatchableFields,
     ) -> Result<Schema, SchemaStoreError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         let mut schema = match &*guard {
             Some(s) => s.clone(),
             None => self.load_locked()?,
@@ -195,7 +215,10 @@ impl SchemaStore {
         entity_type: EntityType,
         ordered_keys: &[String],
     ) -> Result<Schema, SchemaStoreError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         let mut schema = match &*guard {
             Some(s) => s.clone(),
             None => self.load_locked()?,
@@ -236,7 +259,10 @@ impl SchemaStore {
         entity_type: EntityType,
         key: &str,
     ) -> Result<Schema, SchemaStoreError> {
-        let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("SchemaStore"))?;
         let mut schema = match &*guard {
             Some(s) => s.clone(),
             None => self.load_locked()?,

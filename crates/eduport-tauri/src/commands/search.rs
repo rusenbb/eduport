@@ -51,7 +51,10 @@ pub fn core_search(
         .as_ref()
         .map(|v| v.iter().map(String::as_str).collect())
         .unwrap_or_default();
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     let hits = search_fts(index.conn(), &q, limit, &tags)?;
     Ok(hits.into_iter().map(Into::into).collect())
 }
