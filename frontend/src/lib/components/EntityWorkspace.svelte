@@ -86,7 +86,18 @@
 	// stripped from the backend filter at loadList time and applied
 	// in-memory against fetched detail records.
 	const builtinFilterableProps = $derived(builtinFilterableProperties(type));
-	const filterableProperties = $derived([...customProperties, ...builtinFilterableProps]);
+	// Dedupe by key — schema entries already include the built-ins
+	// (seeded by `0ef8672`), so a naive merge with the synthetic
+	// `builtinFilterableProperties` list double-stuffs the sort,
+	// group-by, and filter dropdowns. Schema wins; the synth list
+	// remains a fallback for keys the schema doesn't carry (e.g. the
+	// synthetic "Name contains" entry for ergonomic name search).
+	const filterableProperties = $derived.by(() => {
+		const seen = new Map<string, (typeof customProperties)[number]>();
+		for (const p of customProperties) seen.set(p.key, p);
+		for (const p of builtinFilterableProps) if (!seen.has(p.key)) seen.set(p.key, p);
+		return Array.from(seen.values());
+	});
 
 	// True when *anything* is narrowing the list (property filters,
 	// tag filters, built-in chips, or compound filter) — drives the
@@ -746,6 +757,45 @@
 							{/each}
 						</select>
 					</label>
+					<!-- Sort sits next to Group by — relocated from the
+					filter bar so the two list-shape controls live in one
+					row. Sortable = anything that isn't a relation (those
+					have no useful intrinsic ordering). -->
+					<label class="flex items-center gap-1 text-xs">
+						<span class="text-[var(--color-muted)]">Sort by</span>
+						<select
+							value={propertyFilters.sort ?? ''}
+							onchange={(e) => {
+								const key = (e.currentTarget as HTMLSelectElement).value || undefined;
+								syncFiltersToUrl({
+									...propertyFilters,
+									sort: key,
+									sortDir: key ? (propertyFilters.sortDir ?? 'asc') : undefined
+								});
+							}}
+							class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-xs"
+						>
+							<option value="">(name)</option>
+							{#each filterableProperties.filter((p) => p.type !== 'relation') as p}
+								<option value={p.key}>{p.name}</option>
+							{/each}
+						</select>
+						{#if propertyFilters.sort}
+							<select
+								value={propertyFilters.sortDir ?? 'asc'}
+								onchange={(e) =>
+									syncFiltersToUrl({
+										...propertyFilters,
+										sortDir: (e.currentTarget as HTMLSelectElement).value as 'asc' | 'desc'
+									})}
+								class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-xs"
+								aria-label="Sort direction"
+							>
+								<option value="asc">↑</option>
+								<option value="desc">↓</option>
+							</select>
+						{/if}
+					</label>
 				{/if}
 				{#if type === 'application' && view === 'kanban' && kanbanGroupableProps.length > 0}
 					<label class="flex items-center gap-1 text-xs">
@@ -786,11 +836,17 @@
 		</header>
 
 		{#if filterableProperties.length > 0 && !(type === 'application' && view === 'kanban')}
-			<PropertyFilterBar
-				properties={filterableProperties}
-				filters={propertyFilters}
-				onChange={syncFiltersToUrl}
-			/>
+			<!-- Active filter chips only show when the URL/saved view
+			carries some. Adding new filters happens through the
+			Compound filter block below — the "+ Filter" chip-add
+			affordance was removed in favour of one unified path. -->
+			{#if hasActiveFilters(propertyFilters)}
+				<PropertyFilterBar
+					properties={filterableProperties}
+					filters={propertyFilters}
+					onChange={syncFiltersToUrl}
+				/>
+			{/if}
 			<div class="border-b border-[var(--color-border)] px-4 py-2">
 				<button
 					type="button"
