@@ -82,7 +82,17 @@ impl CommandError {
 
 impl From<eduport_core::EduportError> for CommandError {
     fn from(e: eduport_core::EduportError) -> Self {
-        Self::internal(e.to_string())
+        use eduport_core::EduportError as E;
+        match e {
+            E::NotFound(_) => Self::not_found(e.to_string()),
+            E::Conflict(_) => Self::conflict(e.to_string()),
+            E::Invalid(_) => Self::invalid(e.to_string()),
+            // Poisoned, Vaultdb, Schema, Io all collapse to "internal":
+            // none of them is a user-actionable error class, and the
+            // frontend treats them all as "show the message in a
+            // toast" today.
+            _ => Self::internal(e.to_string()),
+        }
     }
 }
 
@@ -94,12 +104,7 @@ impl From<eduport_core::index::IndexError> for CommandError {
 
 impl From<eduport_core::entity::EntityStoreError> for CommandError {
     fn from(e: eduport_core::entity::EntityStoreError) -> Self {
-        match e {
-            eduport_core::entity::EntityStoreError::NotFound { .. } => {
-                Self::not_found(e.to_string())
-            }
-            other => Self::internal(other.to_string()),
-        }
+        Self::from(eduport_core::EduportError::from(e))
     }
 }
 

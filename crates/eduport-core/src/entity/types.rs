@@ -57,7 +57,8 @@ impl BaseEntityFields {
 
 // ─── University ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/university")]
 pub struct University {
     pub name: String,
     #[serde(default)]
@@ -72,12 +73,13 @@ pub struct University {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emails: Vec<EmailResource>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Lab ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/lab")]
 pub struct Lab {
     pub name: String,
     #[serde(default)]
@@ -93,12 +95,13 @@ pub struct Lab {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emails: Vec<EmailResource>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Person ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/person")]
 pub struct Person {
     pub name: String,
     #[serde(default)]
@@ -116,7 +119,7 @@ pub struct Person {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<LinkResource>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Program ─────────────────────────────────────────────────────────
@@ -129,7 +132,8 @@ pub enum ProgramLevel {
     Phd,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/program")]
 pub struct Program {
     pub name: String,
     #[serde(default)]
@@ -164,7 +168,7 @@ pub struct Program {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emails: Vec<EmailResource>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Application ─────────────────────────────────────────────────────
@@ -182,7 +186,8 @@ pub enum ApplicationStatus {
     Withdrawn,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/application")]
 pub struct Application {
     pub name: String,
     #[serde(default)]
@@ -199,7 +204,7 @@ pub struct Application {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub documents: Vec<WikiLink>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Document ────────────────────────────────────────────────────────
@@ -212,7 +217,8 @@ pub enum DocumentStatus {
     Received,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/document")]
 pub struct Document {
     pub name: String,
     #[serde(default)]
@@ -231,7 +237,7 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommender: Option<WikiLink>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 impl Document {
@@ -258,7 +264,8 @@ pub enum EmailDirection {
     Outbound,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/email")]
 pub struct Email {
     pub name: String,
     #[serde(default)]
@@ -289,18 +296,19 @@ pub struct Email {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<WikiLink>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Note ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
+#[note(folder = "", filter = "tags contains eduport-type/note")]
 pub struct Note {
     pub name: String,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(flatten)]
-    pub custom: BTreeMap<String, serde_yaml::Value>,
+    pub custom: BTreeMap<String, serde_json::Value>,
 }
 
 // ─── Entity wrapper ──────────────────────────────────────────────────
@@ -334,6 +342,67 @@ impl Entity {
             serde_yaml::from_str(yaml).map_err(|e| format!("entity frontmatter parse: {}", e))?;
         let entity_type = base.entity_type_from_tags()?;
         deserialize_variant(yaml, entity_type)
+    }
+
+    /// Build an entity from an already-parsed vaultdb [`Record`]. This
+    /// is the canonical Record → Entity path: it reuses vaultdb's
+    /// parser output (no YAML reserialise round-trip) and dispatches
+    /// through `vaultdb_orm::Note::from_record` per variant, so the
+    /// custom-property tail lands in `BTreeMap<String,
+    /// serde_json::Value>` without going through `serde_yaml::Value`.
+    pub fn from_record(
+        record: &vaultdb_core::Record,
+        vault_root: &std::path::Path,
+    ) -> Result<Entity, String> {
+        use vaultdb_orm::Note as _;
+
+        let tags = match record.fields.get("tags") {
+            Some(vaultdb_core::Value::List(items)) => items,
+            _ => return Err("record is missing required `tags` list".into()),
+        };
+        let mut entity_type: Option<EntityType> = None;
+        for v in tags {
+            if let vaultdb_core::Value::String(s) = v
+                && let Some(rest) = s.strip_prefix(EDUPORT_TYPE_PREFIX)
+            {
+                entity_type = Some(
+                    rest.parse::<EntityType>()
+                        .map_err(|e| format!("invalid entity type tag {s:?}: {e}"))?,
+                );
+                break;
+            }
+        }
+        let entity_type = entity_type.ok_or_else(|| {
+            format!("record has no {EDUPORT_TYPE_PREFIX}* tag")
+        })?;
+
+        fn map_err(e: vaultdb_orm::OrmError) -> String {
+            e.to_string()
+        }
+        Ok(match entity_type {
+            EntityType::University => {
+                Entity::University(University::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Lab => Entity::Lab(Lab::from_record(record, vault_root).map_err(map_err)?),
+            EntityType::Person => {
+                Entity::Person(Person::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Program => {
+                Entity::Program(Program::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Application => {
+                Entity::Application(Application::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Document => {
+                Entity::Document(Document::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Email => {
+                Entity::Email(Email::from_record(record, vault_root).map_err(map_err)?)
+            }
+            EntityType::Note => {
+                Entity::Note(Note::from_record(record, vault_root).map_err(map_err)?)
+            }
+        })
     }
 
     pub fn entity_type(&self) -> EntityType {
@@ -379,7 +448,7 @@ impl Entity {
     /// variant. The indexer uses this to populate the `properties`
     /// table and the FTS5 `custom_text` column. Built-in fields stay
     /// on the typed structs and are not surfaced here.
-    pub fn custom(&self) -> &std::collections::BTreeMap<String, serde_yaml::Value> {
+    pub fn custom(&self) -> &std::collections::BTreeMap<String, serde_json::Value> {
         match self {
             Entity::University(e) => &e.custom,
             Entity::Lab(e) => &e.custom,
@@ -407,6 +476,27 @@ impl Entity {
         }
         .map_err(|e| format!("entity serialize: {}", e))
     }
+}
+
+/// Read a record's `eduport-type/<value>` tag and resolve it to an
+/// [`EntityType`]. Returns `None` when the tag list is missing, no
+/// `eduport-type/*` tag is present, or the value doesn't map to a
+/// known type. Cheap projection — does not deserialise the rest of
+/// the record's frontmatter into a typed Entity.
+pub fn record_eduport_type(record: &vaultdb_core::Record) -> Option<EntityType> {
+    let tags = match record.fields.get("tags")? {
+        vaultdb_core::Value::List(items) => items,
+        _ => return None,
+    };
+    for v in tags {
+        if let vaultdb_core::Value::String(s) = v
+            && let Some(rest) = s.strip_prefix(EDUPORT_TYPE_PREFIX)
+            && let Ok(t) = rest.parse::<EntityType>()
+        {
+            return Some(t);
+        }
+    }
+    None
 }
 
 fn deserialize_variant(yaml: &str, entity_type: EntityType) -> Result<Entity, String> {
@@ -519,6 +609,86 @@ priority: 5
             }
             _ => panic!("expected Note"),
         }
+    }
+
+    #[test]
+    fn every_variant_emits_a_parseable_discriminator() {
+        // The derive(Note) macro turns the `#[note(filter = "...")]`
+        // string into an `Expr::parse(...).ok()` call. If a filter
+        // string typoes the where-DSL, .ok() silently returns None and
+        // Query<T> would scan the entire folder without any pinning.
+        // This test pins down that every variant's filter parses.
+        use vaultdb_orm::Note as _;
+        assert!(super::University::discriminator().is_some());
+        assert!(super::Lab::discriminator().is_some());
+        assert!(super::Person::discriminator().is_some());
+        assert!(super::Program::discriminator().is_some());
+        assert!(super::Application::discriminator().is_some());
+        assert!(super::Document::discriminator().is_some());
+        assert!(super::Email::discriminator().is_some());
+        assert!(super::Note::discriminator().is_some());
+    }
+
+    #[test]
+    fn custom_field_round_trips_every_yaml_scalar_shape_through_json_value() {
+        // The `custom` map is typed `BTreeMap<String, serde_json::Value>`
+        // but on-disk frontmatter is YAML. This test pins down that
+        // serde_yaml's deserializer drives `serde_json::Value`'s visitor
+        // correctly for every shape a real eduport custom property
+        // could land in: string, integer, float, bool, null, list,
+        // nested object.
+        let yaml = r#"
+name: My note
+tags:
+  - eduport-type/note
+custom_text: hello
+custom_int: 42
+custom_float: 2.5
+custom_bool: true
+custom_null: null
+custom_list:
+  - english
+  - german
+custom_date: "2026-05-10"
+custom_nested:
+  inner: value
+"#;
+        let e = Entity::from_yaml(yaml).unwrap();
+        let n = match e {
+            Entity::Note(n) => n,
+            _ => panic!("expected Note"),
+        };
+
+        assert_eq!(
+            n.custom.get("custom_text"),
+            Some(&serde_json::json!("hello"))
+        );
+        assert_eq!(n.custom.get("custom_int"), Some(&serde_json::json!(42)));
+        assert_eq!(n.custom.get("custom_float"), Some(&serde_json::json!(2.5)));
+        assert_eq!(n.custom.get("custom_bool"), Some(&serde_json::json!(true)));
+        assert_eq!(n.custom.get("custom_null"), Some(&serde_json::Value::Null));
+        assert_eq!(
+            n.custom.get("custom_list"),
+            Some(&serde_json::json!(["english", "german"]))
+        );
+        assert_eq!(
+            n.custom.get("custom_date"),
+            Some(&serde_json::json!("2026-05-10"))
+        );
+        assert_eq!(
+            n.custom.get("custom_nested"),
+            Some(&serde_json::json!({ "inner": "value" }))
+        );
+
+        // Re-serialise to YAML and reparse: the on-disk write path
+        // also has to survive the JSON-typed custom map.
+        let yaml2 = Entity::Note(n.clone()).to_yaml().unwrap();
+        let back = Entity::from_yaml(&yaml2).unwrap();
+        let back = match back {
+            Entity::Note(n) => n,
+            _ => panic!("expected Note"),
+        };
+        assert_eq!(back.custom, n.custom);
     }
 
     #[test]

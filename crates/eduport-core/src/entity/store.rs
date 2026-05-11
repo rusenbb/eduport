@@ -25,9 +25,14 @@
 
 use std::path::PathBuf;
 
+use vaultdb_orm::{OrmError, Query};
+
 use crate::EduportError;
 use crate::EntityType;
-use crate::entity::types::Entity;
+use crate::entity::types::{
+    record_eduport_type, Application, Document, Email, Entity, Lab, Note, Person, Program,
+    University,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EntityStoreError {
@@ -41,9 +46,26 @@ pub enum EntityStoreError {
     Eduport(#[from] EduportError),
 }
 
+impl From<OrmError> for EntityStoreError {
+    fn from(e: OrmError) -> Self {
+        match e {
+            OrmError::Vault(v) => EntityStoreError::Eduport(EduportError::Vaultdb(v)),
+            other => EntityStoreError::Eduport(EduportError::Schema(other.to_string())),
+        }
+    }
+}
+
 impl From<EntityStoreError> for EduportError {
     fn from(e: EntityStoreError) -> Self {
-        EduportError::Schema(e.to_string())
+        match e {
+            EntityStoreError::NotFound { kind, name } => {
+                EduportError::NotFound(format!("entity {kind:?}/{name}"))
+            }
+            EntityStoreError::ParseFailed { path, reason } => {
+                EduportError::Schema(format!("entity parse failed for {path}: {reason}"))
+            }
+            EntityStoreError::Eduport(e) => e,
+        }
     }
 }
 
@@ -64,64 +86,113 @@ impl EntityStore {
         &self.vault
     }
 
-    /// List every entity of `kind`. Walks the vault root
-    /// non-recursively, parses every `.md` file's frontmatter, and
-    /// keeps the records whose `eduport-type/<value>` tag matches
-    /// `kind`. Files whose tag designates a *different* type, or
-    /// whose frontmatter doesn't parse cleanly, are silently
-    /// skipped — the watcher / reconcile layer surfaces those as
-    /// `parse_errors` on its own path.
+    /// List every entity of `kind`. Dispatches through a typed
+    /// `vaultdb_orm::Query<T>` per variant — the discriminator filter
+    /// declared via `#[derive(Note)]` pins the result set to the right
+    /// type tag, and serde drives deserialisation directly from the
+    /// parsed `Record` without a YAML round-trip. Records whose
+    /// frontmatter doesn't parse as `T` short-circuit the call;
+    /// catastrophic parse errors surface here (the watcher / reconcile
+    /// path also tracks them as `parse_errors`, so the caller can
+    /// choose to surface or skip).
     pub fn list_by_kind(&self, kind: EntityType) -> Result<Vec<Entity>, EntityStoreError> {
-        let load = self
-            .vault
-            .load_records(&self.vault.root, false, false)
-            .map_err(|e| EntityStoreError::Eduport(EduportError::Vaultdb(e)))?;
-        let mut entities = Vec::with_capacity(load.records.len());
-        for r in load.records {
-            let yaml = match serde_yaml::to_string(&r.fields) {
-                Ok(y) => y,
-                Err(_) => continue, // skip records we can't re-serialise
-            };
-            match Entity::from_yaml(&yaml) {
-                Ok(e) if e.entity_type() == kind => entities.push(e),
-                // Wrong type or non-eduport frontmatter — skip
-                // silently. The reconcile / watcher path is where
-                // genuinely-invalid eduport files surface as
-                // parse_errors; here we just filter.
-                _ => {}
-            }
-        }
-        Ok(entities)
+        Ok(match kind {
+            EntityType::University => Query::<University>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::University)
+                .collect(),
+            EntityType::Lab => Query::<Lab>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Lab)
+                .collect(),
+            EntityType::Person => Query::<Person>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Person)
+                .collect(),
+            EntityType::Program => Query::<Program>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Program)
+                .collect(),
+            EntityType::Application => Query::<Application>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Application)
+                .collect(),
+            EntityType::Document => Query::<Document>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Document)
+                .collect(),
+            EntityType::Email => Query::<Email>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Email)
+                .collect(),
+            EntityType::Note => Query::<Note>::new(&self.vault)
+                .fetch()?
+                .into_iter()
+                .map(Entity::Note)
+                .collect(),
+        })
     }
 
-    /// Find a single entity by its filename stem (no `.md`). Looks
-    /// at `<vault>/<name>.md`, parses, and verifies the type tag
-    /// matches `kind`. Returns `Ok(None)` when the file is missing
-    /// or its type disagrees with `kind`.
+    /// Find a single entity by its filename stem (no `.md`). Reads the
+    /// file via `vaultdb_core::Vault::find_by_name` (O(1) path read,
+    /// shares the canonical frontmatter parser), checks the
+    /// `eduport-type/<value>` tag matches `kind`, then deserialises
+    /// into the typed variant via `vaultdb_orm::Note::from_record`.
+    /// Returns `Ok(None)` when the file is missing or its tag
+    /// designates a different type.
     pub fn find_by_name(
         &self,
         kind: EntityType,
         name: &str,
     ) -> Result<Option<Entity>, EntityStoreError> {
-        let path = self.path_for(kind, name);
-        if !path.exists() {
-            return Ok(None);
-        }
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| EntityStoreError::Eduport(EduportError::Io(e)))?;
-        let yaml = match split_frontmatter(&raw) {
-            Some((fm, _body)) => fm,
+        use vaultdb_orm::Note as _;
+
+        let record = match self
+            .vault
+            .find_by_name("", name)
+            .map_err(|e| EntityStoreError::Eduport(EduportError::Vaultdb(e)))?
+        {
+            Some(r) => r,
             None => return Ok(None),
         };
-        let entity = Entity::from_yaml(yaml).map_err(|reason| EntityStoreError::ParseFailed {
-            path: path.display().to_string(),
-            reason,
-        })?;
-        Ok(if entity.entity_type() == kind {
-            Some(entity)
-        } else {
-            None
-        })
+        if record_eduport_type(&record) != Some(kind) {
+            return Ok(None);
+        }
+        let root = &self.vault.root;
+        let parse = |result: vaultdb_orm::Result<Entity>| -> Result<Option<Entity>, EntityStoreError> {
+            result.map(Some).map_err(|e| match e {
+                vaultdb_orm::OrmError::Vault(v) => {
+                    EntityStoreError::Eduport(EduportError::Vaultdb(v))
+                }
+                other => EntityStoreError::ParseFailed {
+                    path: record.path.display().to_string(),
+                    reason: other.to_string(),
+                },
+            })
+        };
+        match kind {
+            EntityType::University => parse(
+                University::from_record(&record, root).map(Entity::University),
+            ),
+            EntityType::Lab => parse(Lab::from_record(&record, root).map(Entity::Lab)),
+            EntityType::Person => parse(Person::from_record(&record, root).map(Entity::Person)),
+            EntityType::Program => parse(Program::from_record(&record, root).map(Entity::Program)),
+            EntityType::Application => parse(
+                Application::from_record(&record, root).map(Entity::Application),
+            ),
+            EntityType::Document => {
+                parse(Document::from_record(&record, root).map(Entity::Document))
+            }
+            EntityType::Email => parse(Email::from_record(&record, root).map(Entity::Email)),
+            EntityType::Note => parse(Note::from_record(&record, root).map(Entity::Note)),
+        }
     }
 
     /// Compute the on-disk path where an entity with the given
@@ -246,10 +317,26 @@ impl EntityStore {
         filename_stem: &str,
         permanent: bool,
     ) -> Result<(), EntityStoreError> {
-        let filter = vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Equals {
-            field: "_name".into(),
-            value: vaultdb_core::Value::String(filename_stem.into()),
-        });
+        // Pin by both filename stem AND type tag. The `_name` predicate
+        // alone is enough in eduport's flat-layout vault (stems are
+        // unique), but ANDing the discriminator makes the `kind`
+        // parameter load-bearing instead of decorative: a mismatched
+        // kind now misses the file instead of deleting it.
+        let type_tag = format!(
+            "{}{}",
+            crate::entity::types::EDUPORT_TYPE_PREFIX,
+            kind.as_str()
+        );
+        let filter = vaultdb_core::Expr::And(vec![
+            vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Equals {
+                field: "_name".into(),
+                value: vaultdb_core::Value::String(filename_stem.into()),
+            }),
+            vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Contains {
+                field: "tags".into(),
+                value: vaultdb_core::Value::String(type_tag),
+            }),
+        ]);
         let builder = vaultdb_core::DeleteBuilder::new("", filter).permanent(permanent);
         let report = builder
             .execute(&self.vault)
@@ -324,14 +411,6 @@ fn extract_body(content: &str) -> String {
     }
 }
 
-/// Split a raw `---\nyaml\n---\nbody` file into `(yaml, body)`.
-/// Returns `None` when the leading delimiter or its closing
-/// counterpart is missing.
-fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
-    let trimmed = raw.strip_prefix("---\n")?;
-    let close = trimmed.find("\n---\n")?;
-    Some((&trimmed[..close], &trimmed[close + "\n---\n".len()..]))
-}
 
 #[cfg(test)]
 mod tests {
@@ -457,6 +536,34 @@ mod tests {
         let store = EntityStore::new(vault);
         let p = store.path_for(EntityType::University, "stanford-K9p3");
         assert_eq!(p, dir.path().join("stanford-K9p3.md"));
+    }
+
+    #[test]
+    fn delete_refuses_when_kind_disagrees_with_on_disk_type() {
+        // A Note file lives at <vault>/stanford.md. delete(University,
+        // "stanford") used to silently delete it because the SQL
+        // predicate only checked the filename stem. The type-aware
+        // filter now refuses cross-type deletion with NotFound, and
+        // the file stays on disk.
+        let (dir, vault) = setup_vault();
+        let path = dir.path().join("stanford.md");
+        fs::write(
+            &path,
+            "---\nname: Stanford\ntags:\n  - eduport-type/note\n---\nbody\n",
+        )
+        .unwrap();
+        let store = EntityStore::new(vault);
+        let result = store.delete(EntityType::University, "stanford", true);
+        assert!(
+            matches!(result, Err(EntityStoreError::NotFound { .. })),
+            "expected NotFound for cross-type delete, got {result:?}"
+        );
+        assert!(path.exists(), "file must survive a mismatched-kind delete");
+        // Correct kind succeeds.
+        store
+            .delete(EntityType::Note, "stanford", true)
+            .expect("note delete should succeed");
+        assert!(!path.exists(), "file should be removed by correct-kind delete");
     }
 
     #[test]

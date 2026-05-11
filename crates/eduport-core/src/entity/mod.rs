@@ -10,7 +10,7 @@
 //! to find the `eduport-type/<value>` discriminator, then deserialises
 //! into the matching variant. The Pydantic original used `extra =
 //! "allow"`; we replicate that with `#[serde(flatten)]` into a
-//! `BTreeMap<String, serde_yaml::Value>` for the custom-property tail.
+//! `BTreeMap<String, serde_json::Value>` for the custom-property tail.
 
 pub mod resources;
 pub mod store;
@@ -19,7 +19,7 @@ pub mod types;
 pub use resources::{EmailResource, LinkResource};
 pub use store::{EntityStore, EntityStoreError};
 pub use types::{
-    Application, ApplicationStatus, BaseEntityFields, Document, DocumentStatus,
-    EDUPORT_TYPE_PREFIX, Email, EmailDirection, Entity, Lab, Note, Person, Program, ProgramLevel,
-    University,
+    record_eduport_type, Application, ApplicationStatus, BaseEntityFields, Document,
+    DocumentStatus, EDUPORT_TYPE_PREFIX, Email, EmailDirection, Entity, Lab, Note, Person, Program,
+    ProgramLevel, University,
 };

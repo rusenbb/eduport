@@ -7,7 +7,7 @@
 //!     `custom_text` for the FTS5 column)
 //!   - Sweep stale `parse_errors` rows (files no longer at the vault
 //!     root, or files that have moved into subfolders)
-//!   - Re-run our type-aware `Entity::from_yaml` on each record so we
+//!   - Re-run our type-aware `Entity::from_record` on each record so we
 //!     can record a parse error for the user if frontmatter doesn't
 //!     match an eduport entity shape
 
@@ -67,8 +67,10 @@ pub fn reconcile(
     let raw = vaultdb_fts::reconcile(conn, vault, |record| {
         let path = &record.path;
         let raw_content = record.raw_content.as_deref().unwrap_or("");
-        let (yaml, body) = match split_frontmatter(raw_content) {
-            Some(v) => v,
+        // Body split goes through vaultdb's canonical frontmatter
+        // parser so we share one implementation across the codebase.
+        let body = match vaultdb_core::frontmatter::extract_frontmatter(raw_content) {
+            Some((_, body_start)) => &raw_content[body_start..],
             None => {
                 errors.push((
                     path.to_string_lossy().into_owned(),
@@ -77,7 +79,10 @@ pub fn reconcile(
                 return None;
             }
         };
-        let entity = match Entity::from_yaml(yaml) {
+        // Frontmatter is already parsed into `record.fields` by
+        // vaultdb — go straight from Record to typed Entity without a
+        // YAML re-serialise round-trip.
+        let entity = match Entity::from_record(record, &vault.root) {
             Ok(e) => e,
             Err(reason) => {
                 errors.push((path.to_string_lossy().into_owned(), reason));
@@ -137,14 +142,6 @@ pub fn reconcile(
     }
 
     Ok(summary)
-}
-
-fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
-    let trimmed = raw.strip_prefix("---\n")?;
-    let close = trimmed.find("\n---\n")?;
-    let yaml = &trimmed[..close];
-    let body = &trimmed[close + "\n---\n".len()..];
-    Some((yaml, body))
 }
 
 #[cfg(test)]

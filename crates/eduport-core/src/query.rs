@@ -328,7 +328,7 @@ mod tests {
         let num = BTreeMap::new();
         let date = BTreeMap::new();
         let tags = ["japan", "ylsy"];
-        let tag_refs: Vec<&str> = tags.iter().copied().collect();
+        let tag_refs: Vec<&str> = tags.to_vec();
         let input = FilterInput {
             text: &text,
             num: &num,

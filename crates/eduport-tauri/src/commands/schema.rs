@@ -27,12 +27,11 @@ use crate::core_state::{EduportState, EduportStateHandle};
 
 impl From<SchemaStoreError> for CommandError {
     fn from(e: SchemaStoreError) -> Self {
-        match e {
-            SchemaStoreError::Conflict(m) => Self::conflict(m),
-            SchemaStoreError::NotFound(m) => Self::not_found(m),
-            SchemaStoreError::Invalid(m) => Self::invalid(m),
-            SchemaStoreError::Eduport(e) => Self::internal(e.to_string()),
-        }
+        // SchemaStoreError → EduportError carries the variant
+        // forward; EduportError → CommandError picks the right code.
+        // The redundant manual match here would drift the moment
+        // EduportError grows a new variant.
+        Self::from(eduport_core::EduportError::from(e))
     }
 }
 
@@ -288,7 +287,9 @@ pub fn core_schema_purge_orphans(
         }
 
         let body = read_body(&path).unwrap_or_default();
-        if let Some(watcher) = st.watcher.lock().expect("watcher mutex poisoned").as_ref() {
+        if let Ok(guard) = st.watcher.lock()
+            && let Some(watcher) = guard.as_ref()
+        {
             watcher.note_self_write(&path);
         }
         if let Err(e) = st
@@ -312,7 +313,10 @@ pub fn core_schema_purge_orphans(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos() as i64)
             .unwrap_or(0);
-        let index = st.index.lock().expect("index mutex poisoned");
+        let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
         let _ = index_upsert(
             index.conn(),
             &file_id,

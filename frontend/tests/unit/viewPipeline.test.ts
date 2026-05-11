@@ -7,8 +7,7 @@ const item = (id: string): EntityListItem => ({
 	file_id: id,
 	type: 'university',
 	name: id,
-	path: `${id}.md`,
-	mtime_ns: 0
+	path: `${id}.md`
 });
 
 const detailWith = (entity: Record<string, unknown>) =>
