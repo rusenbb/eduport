@@ -117,7 +117,7 @@ describe('viewPipeline.groupItems', () => {
 });
 
 describe('viewPipeline.groupableFrom', () => {
-	it('excludes relation and resource-list properties', () => {
+	it('includes every supported property type, including relation', () => {
 		const props: Property[] = [
 			{ key: 'k1', name: 'k1', type: 'single-select', options: [] },
 			{ key: 'k2', name: 'k2', type: 'date' },
@@ -127,6 +127,41 @@ describe('viewPipeline.groupableFrom', () => {
 			{ key: 'k6', name: 'k6', type: 'relation' }
 		];
 		const out = groupableFrom(props).map((p) => p.key);
-		expect(out).toEqual(['k1', 'k2', 'k3', 'k4', 'k5']);
+		expect(out).toEqual(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']);
+	});
+});
+
+describe('viewPipeline.groupItems — relation', () => {
+	it('buckets by wikilink target id (single value)', () => {
+		const universityProp: Property = {
+			key: 'university',
+			name: 'University',
+			type: 'relation',
+			target_types: ['university']
+		};
+		const items = [item('a'), item('b'), item('c')];
+		const details = {
+			a: detailWith({ university: '[[kyoto-u]]' }),
+			b: detailWith({ university: '[[kyoto-u]]' }),
+			c: detailWith({ university: '[[utokyo]]' })
+		};
+		const buckets = groupItems(items, details, { property: universityProp });
+		const map = Object.fromEntries(buckets.map((b) => [b.value, b.items.length]));
+		expect(map['kyoto-u']).toBe(2);
+		expect(map['utokyo']).toBe(1);
+	});
+
+	it('buckets a list-relation item into every target', () => {
+		const labsProp: Property = {
+			key: 'labs',
+			name: 'Labs',
+			type: 'relation',
+			target_types: ['lab']
+		};
+		const items = [item('p1')];
+		const details = { p1: detailWith({ labs: ['[[lab-a]]', '[[lab-b]]'] }) };
+		const buckets = groupItems(items, details, { property: labsProp });
+		expect(buckets.find((b) => b.value === 'lab-a')!.items).toHaveLength(1);
+		expect(buckets.find((b) => b.value === 'lab-b')!.items).toHaveLength(1);
 	});
 });
