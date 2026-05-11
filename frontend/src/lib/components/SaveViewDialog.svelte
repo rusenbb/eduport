@@ -7,6 +7,7 @@
 	import type { EntityType } from '$lib/types';
 	import type { ViewKind, View } from '$lib/types/view';
 	import type { ViewFilter } from '$lib/types/view';
+	import type { FilterTree } from '$lib/types/filter';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -15,6 +16,7 @@
 		existing,
 		viewKind,
 		filter,
+		filterTree,
 		sortKey,
 		sortDir,
 		groupByKey,
@@ -28,6 +30,7 @@
 		existing?: View | null;
 		viewKind: ViewKind;
 		filter: ViewFilter;
+		filterTree?: FilterTree | null;
 		sortKey?: string | null;
 		sortDir?: 'asc' | 'desc';
 		groupByKey?: string | null;
@@ -61,6 +64,7 @@
 					name: trimmed,
 					kind: existing.kind,
 					filter: existing.filter,
+					filter_tree: existing.filter_tree ?? null,
 					sort_key: existing.sort_key,
 					sort_dir: existing.sort_dir,
 					group_by_key: existing.group_by_key,
@@ -72,6 +76,7 @@
 					name: trimmed,
 					kind: viewKind,
 					filter,
+					filter_tree: filterTree ?? null,
 					sort_key: sortKey ?? null,
 					sort_dir: sortDir ?? 'asc',
 					group_by_key: groupByKey ?? null,

@@ -43,6 +43,7 @@ use vaultdb_core::{CompareOp, Expr, Predicate, Query, Record, SortKey, Value};
 
 use crate::EntityType;
 use crate::entity::types::EDUPORT_TYPE_PREFIX;
+use crate::view::filter_tree::{FilterTree, tree_to_expr};
 
 /// Frontend-shaped filter request, deserialised by the Tauri layer.
 /// Mirrors the JSON the frontend's `filterEntitiesByProperties` posts.
@@ -52,6 +53,10 @@ pub struct FilterInput<'a> {
     pub num: &'a BTreeMap<String, (Option<f64>, Option<f64>)>,
     pub date: &'a BTreeMap<String, (Option<String>, Option<String>)>,
     pub tags: &'a [&'a str],
+    /// Optional Notion-style compound filter tree, merged with the
+    /// flat chip filter via AND. None when the caller is only using
+    /// the legacy chip filter.
+    pub tree: Option<&'a FilterTree>,
     pub sort_key: Option<&'a str>,
     /// `"asc"` or `"desc"`. Anything else falls through to ascending.
     pub sort_dir: &'a str,
@@ -131,6 +136,15 @@ pub fn query_for_filter(entity_type: EntityType, filters: &FilterInput<'_>) -> Q
                 value: Value::String(hi.clone()),
             }));
         }
+    }
+
+    // Compound filter tree: translate and AND into the chip-filter
+    // clauses so a view can carry both shapes. Either side missing
+    // just degrades cleanly to "use the other".
+    if let Some(tree) = filters.tree
+        && let Some(tree_expr) = tree_to_expr(tree)
+    {
+        clauses.push(tree_expr);
     }
 
     let filter = if clauses.len() == 1 {
@@ -269,6 +283,7 @@ mod tests {
             num: &num,
             date: &date,
             tags,
+            tree: None,
             sort_key: None,
             sort_dir: "asc",
         };
@@ -294,6 +309,7 @@ mod tests {
             num: &num,
             date: &date,
             tags: &[],
+            tree: None,
             sort_key: None,
             sort_dir: "asc",
         };
@@ -318,6 +334,7 @@ mod tests {
             num: &num,
             date: &date,
             tags: &tag_refs,
+            tree: None,
             sort_key: None,
             sort_dir: "asc",
         };
@@ -346,6 +363,7 @@ mod tests {
             num: &num,
             date: &date,
             tags: &[],
+            tree: None,
             sort_key: None,
             sort_dir: "asc",
         };
@@ -374,6 +392,7 @@ mod tests {
             num: &num,
             date: &date,
             tags: &[],
+            tree: None,
             sort_key: Some("country"),
             sort_dir: "desc",
         };

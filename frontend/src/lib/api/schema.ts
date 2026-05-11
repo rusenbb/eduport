@@ -18,6 +18,7 @@ import type {
 	PropertyFilters,
 	SelectOption
 } from '../types/schema';
+import type { FilterTree } from '../types/filter';
 
 // ----- schema CRUD ----------------------------------------------------------
 
@@ -90,7 +91,8 @@ export function getPropertyCounts(
 
 export function filterEntitiesByProperties(
 	type: EntityType,
-	filters: PropertyFilters
+	filters: PropertyFilters,
+	tree?: FilterTree | null
 ): Promise<EntityListItem[]> {
 	// Range tuples (`[lo, hi]`) deserialize directly into Rust
 	// `(Option<f64>, Option<f64>)` etc. — forwarded verbatim. Empty
@@ -105,6 +107,7 @@ export function filterEntitiesByProperties(
 			),
 			num: filters.num,
 			date: filters.date,
+			tree: tree ?? null,
 			sort: filters.sort ?? null,
 			sort_dir: filters.sortDir ?? null
 		}

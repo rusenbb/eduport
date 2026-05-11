@@ -223,6 +223,7 @@ mod tests {
             name: format!("View {}", id),
             kind: ViewKind::List,
             filter: ViewFilter::default(),
+            filter_tree: None,
             sort_key: None,
             sort_dir: SortDir::Asc,
             group_by_key: None,

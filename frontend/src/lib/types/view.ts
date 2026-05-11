@@ -4,6 +4,7 @@
 
 import type { EntityType } from '../types';
 import type { PropertyFilters } from './schema';
+import type { FilterTree } from './filter';
 
 export type ViewKind = 'list' | 'table' | 'board';
 export type SortDir = 'asc' | 'desc';
@@ -22,6 +23,9 @@ export interface View {
 	name: string;
 	kind: ViewKind;
 	filter: ViewFilter;
+	/** Notion-style compound filter — merged with `filter` via AND on
+	 * the backend. Newly-created views can use this exclusively. */
+	filter_tree?: FilterTree | null;
 	sort_key?: string | null;
 	sort_dir: SortDir;
 	group_by_key?: string | null;
