@@ -18,10 +18,11 @@ use std::sync::Arc;
 
 use eduport_core::entity::Entity;
 use eduport_core::index::writer::{delete_entity as index_delete, upsert_entity as index_upsert};
-use eduport_core::index::{list_entities, EntitySummary};
+use eduport_core::query::{query_for_filter, EntitySummaryView, FilterInput};
 use eduport_core::EntityType;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
+use std::collections::BTreeMap;
 use tauri::State;
 
 use super::{require_state, CommandError};
@@ -39,14 +40,18 @@ pub struct EntityListItem {
     pub mtime_ns: i64,
 }
 
-impl From<EntitySummary> for EntityListItem {
-    fn from(s: EntitySummary) -> Self {
+impl From<EntitySummaryView> for EntityListItem {
+    fn from(s: EntitySummaryView) -> Self {
         Self {
             file_id: s.file_id,
             entity_type: s.entity_type,
             name: s.name,
             path: s.path,
-            mtime_ns: s.mtime_ns,
+            // The frontend doesn't actually read mtime_ns; the
+            // previous SQLite cache stored it for the watcher's
+            // incremental-update path, which is unaffected by this
+            // command. Setting to 0 keeps the response shape stable.
+            mtime_ns: 0,
         }
     }
 }
@@ -89,8 +94,10 @@ pub struct ResolveResult {
 }
 
 /// List entities of `entity_type`, optionally filtered by tags
-/// (intersection semantics). Reads from the FTS5 index — no disk
-/// walk.
+/// (intersection semantics). Delegates to vaultdb's `Vault::query`
+/// via the `eduport_core::query` adapter — every tag becomes a
+/// `Predicate::Contains { field: "tags", ... }` clause, pinned by
+/// the `eduport-type/<value>` discriminator. No SQLite cache lookup.
 #[tauri::command]
 pub fn core_entity_list(
     state: State<'_, EduportStateHandle>,
@@ -98,13 +105,30 @@ pub fn core_entity_list(
     tags: Option<Vec<String>>,
 ) -> Result<Vec<EntityListItem>, CommandError> {
     let st = require_state(&state)?;
-    let tags: Vec<&str> = tags
-        .as_ref()
-        .map(|v| v.iter().map(String::as_str).collect())
-        .unwrap_or_default();
-    let index = st.index.lock().expect("index mutex poisoned");
-    let rows = list_entities(index.conn(), Some(entity_type), &tags)?;
-    Ok(rows.into_iter().map(Into::into).collect())
+    let tag_strs: Vec<String> = tags.unwrap_or_default();
+    let tag_refs: Vec<&str> = tag_strs.iter().map(String::as_str).collect();
+    let text = BTreeMap::new();
+    let num = BTreeMap::new();
+    let date = BTreeMap::new();
+    let input = FilterInput {
+        text: &text,
+        num: &num,
+        date: &date,
+        tags: &tag_refs,
+        sort_key: None,
+        sort_dir: "asc",
+    };
+    let q = query_for_filter(entity_type, &input);
+    let records = st
+        .entity_store
+        .vault()
+        .query(&q)
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
+    Ok(records
+        .iter()
+        .filter_map(EntitySummaryView::from_record)
+        .map(Into::into)
+        .collect())
 }
 
 /// Fetch a single entity by `(entity_type, file_id)`. Reads the

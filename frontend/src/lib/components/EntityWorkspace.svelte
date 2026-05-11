@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getContext, onMount, untrack } from 'svelte';
+	import { getContext, onMount } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { deleteEntity, getEntity, listEntities } from '$lib/api/entities';
 	import { CoreCommandError, listenCoreEvent } from '$lib/api/client';
@@ -215,40 +215,14 @@
 		loading = true;
 		error = null;
 		try {
-			// Split text filters by routing: the indexed `properties`
-			// SQL table only knows about custom (user-declared) schema
-			// keys, so built-in keys (name, country, city, …) must be
-			// handled in-memory against the fetched detail records.
-			// `untrack` so reading `customProperties` here doesn't add
-			// it to the calling $effect's dep set — that re-introduced
-			// the list-reload flicker on item click. customProperties
-			// only changes when the schema does, which goes through
-			// the watcher's schema_changed branch and re-triggers
-			// loadList explicitly anyway.
-			const customKeys = untrack(
-				() => new Set(customProperties.map((p) => p.key))
-			);
-			const customTextFilters: Record<string, string> = {};
-			const builtinTextFilters: Record<string, string> = {};
-			for (const [k, v] of Object.entries(propertyFilters.text)) {
-				if (v === '') continue; // "(any)" placeholder — ignored
-				if (customKeys.has(k)) customTextFilters[k] = v;
-				else builtinTextFilters[k] = v;
-			}
-			const backendFilters: PropertyFilters = {
-				text: customTextFilters,
-				num: propertyFilters.num,
-				date: propertyFilters.date,
-				sort: propertyFilters.sort,
-				sortDir: propertyFilters.sortDir
-			};
-
-			// Property filters / sort use the indexed query path; tag filters use
-			// the existing list endpoint. When both apply, fetch via property
-			// filters and intersect against the tag-list result.
+			// Filter / sort happen on the backend via `Vault::query`
+			// (see `eduport_core::query`), which reads any frontmatter
+			// field directly. Built-in keys (name, country, city, …)
+			// and custom-schema keys are equally first-class — no
+			// client-side post-filter, no shadow index split.
 			let baseItems: EntityListItem[];
-			if (hasActiveFilters(backendFilters)) {
-				baseItems = await filterEntitiesByProperties(type, backendFilters);
+			if (hasActiveFilters(propertyFilters)) {
+				baseItems = await filterEntitiesByProperties(type, propertyFilters);
 				if ($filters.tags.length > 0) {
 					const tagged = new Set(
 						(await listEntities(type, $filters.tags)).map((i) => i.file_id)
@@ -268,28 +242,6 @@
 					}
 				})
 			);
-
-			// In-memory post-filter for built-in fields. Simple
-			// case-insensitive substring match — matches the UX of
-			// the chip placeholder text ("contains…").
-			if (Object.keys(builtinTextFilters).length > 0) {
-				baseItems = baseItems.filter((item) => {
-					const detail = nextDetails[item.file_id];
-					if (!detail) return false;
-					for (const [k, v] of Object.entries(builtinTextFilters)) {
-						const raw = (detail.entity as Record<string, unknown>)[k];
-						const fieldValue =
-							raw == null
-								? ''
-								: typeof raw === 'string'
-									? raw
-									: JSON.stringify(raw);
-						if (!fieldValue.toLowerCase().includes(v.toLowerCase())) return false;
-					}
-					return true;
-				});
-			}
-
 			items = baseItems;
 			details = nextDetails;
 		} catch (e) {
