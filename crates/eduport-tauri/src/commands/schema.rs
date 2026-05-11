@@ -1,21 +1,18 @@
 //! Schema editor commands.
 //!
-//! Mirrors the Python sidecar's `/api/schema/*` endpoints. Schema
-//! mutations always trigger a `properties` reindex via
-//! [`eduport_core::index::writer::reindex_all_properties`] so the
-//! SQL filter/sort surface stays in sync with what the user just
-//! changed.
+//! The schema is owned by `SchemaStore` (atomic YAML writes via
+//! vaultdb-core's writer). Mutations no longer trigger a `properties`
+//! reindex: filtering moved to `Vault::query`, which reads the on-disk
+//! frontmatter directly, so there's no shadow index to keep in sync.
 //!
 //! `tier_template` and `purge_orphans` are coordinator operations
-//! that combine SchemaStore + EntityStore + Index. They live here
-//! (rather than as eduport-core methods) for the same reason: they
-//! need all three layers, and crossing layers is exactly what the
-//! Tauri command surface is for.
+//! that combine SchemaStore + EntityStore. They live here (rather
+//! than as eduport-core methods) because they need both layers, and
+//! crossing layers is exactly what the Tauri command surface is for.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use eduport_core::index::writer::{reindex_all_properties, upsert_entity as index_upsert};
+use eduport_core::index::writer::upsert_entity as index_upsert;
 use eduport_core::schema::{
     EntitySchema, PatchableFields, Property, PropertyKind, Schema, SchemaStoreError, SelectOption,
     SingleSelectProperty,
@@ -127,7 +124,6 @@ pub fn core_schema_add_property(
     let st = require_state(&state)?;
     let prop = parse_property(property)?;
     let schema = st.schema_store.add_property(entity_type, prop)?;
-    reindex(&st, &schema)?;
     Ok(schema.for_type(entity_type).clone())
 }
 
@@ -153,7 +149,6 @@ pub fn core_schema_patch_property(
     let schema = st
         .schema_store
         .patch_property(entity_type, &key, patchable)?;
-    reindex(&st, &schema)?;
     Ok(schema.for_type(entity_type).clone())
 }
 
@@ -169,7 +164,6 @@ pub fn core_schema_delete_property(
 ) -> Result<EntitySchema, CommandError> {
     let st = require_state(&state)?;
     let schema = st.schema_store.delete_property(entity_type, &key)?;
-    reindex(&st, &schema)?;
     Ok(schema.for_type(entity_type).clone())
 }
 
@@ -236,7 +230,6 @@ pub fn core_schema_apply_tier_template(
         results.insert(et.to_string(), TierStatus { status: "added" });
     }
 
-    reindex(&st, &schema)?;
     Ok(TierTemplateResult { results, schema })
 }
 
@@ -335,14 +328,6 @@ pub fn core_schema_purge_orphans(
 }
 
 // ── helpers ────────────────────────────────────────────────────────
-
-/// Run the `properties` table reindex against the live schema. The
-/// FTS5 index doesn't change here — only the SQL filter columns do.
-fn reindex(state: &Arc<EduportState>, schema: &Schema) -> Result<(), CommandError> {
-    let index = state.index.lock().expect("index mutex poisoned");
-    reindex_all_properties(index.conn(), schema)?;
-    Ok(())
-}
 
 /// Parse a JSON property body. Goes through serde_yaml as the
 /// canonical wire format (matches what's stored in schema.yaml).

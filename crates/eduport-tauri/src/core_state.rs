@@ -207,12 +207,14 @@ fn handle_watcher_event(
             let _ = index_delete(index.conn(), file_id);
         }
         VaultEvent::SchemaChanged => {
-            // Reload from disk; if it parses, kick off a property
-            // re-index so the SQL filter surface stays in sync.
-            if let Ok(schema) = state.schema_store.reload() {
-                let index = state.index.lock().expect("index mutex poisoned");
-                let _ = eduport_core::index::writer::reindex_all_properties(index.conn(), &schema);
-            }
+            // Pull the new schema into the in-process cache so the
+            // FTS5 `custom_text` column (which uses the schema to
+            // decide which fields contribute searchable prose) is
+            // rebuilt the next time an entity is written. The
+            // historical "rebuild the SQL properties index" step is
+            // gone — filtering is now `Vault::query`-based, which
+            // reads the on-disk frontmatter directly.
+            let _ = state.schema_store.reload();
         }
         VaultEvent::ViewsChanged => {
             let _ = state.view_store.reload();

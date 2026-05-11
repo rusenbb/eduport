@@ -35,15 +35,10 @@ pub mod reconcile;
 pub mod schema;
 pub mod writer;
 
-pub use reader::{
-    EntitySummary, PropertyFilter, PropertyValueCount, SearchHit, filter_entities_by_properties,
-    list_entities, property_value_counts, search_fts,
-};
+pub use reader::{SearchHit, search_fts};
 pub use reconcile::{ReconcileSummary, reconcile};
 pub use schema::{INDEX_SCHEMA_VERSION, InitOutcome, init_schema};
-pub use writer::{
-    clear_parse_error, delete_entity, record_parse_error, reindex_all_properties, upsert_entity,
-};
+pub use writer::{clear_parse_error, delete_entity, record_parse_error, upsert_entity};
 
 use rusqlite::Connection;
 use std::path::Path;
@@ -61,10 +56,11 @@ impl Index {
     /// convention of "the caller decides where things live".
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
-        // Foreign-key enforcement is off by default in SQLite;
-        // turn it on so `ON DELETE CASCADE` rows in `entity_tags` /
-        // `properties` are actually removed when the parent
-        // `entities` row goes.
+        // Foreign-key enforcement is off by default. We still turn
+        // it on so any future cascade declarations are honoured —
+        // the historical `entity_tags` / `properties` cascades were
+        // dropped along with their tables when filtering moved to
+        // `Vault::query`.
         conn.execute("PRAGMA foreign_keys = ON", [])?;
         let _ = init_schema(&conn)?;
         Ok(Self { conn })

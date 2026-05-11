@@ -47,6 +47,22 @@ pub const INDEX_SCHEMA_VERSION: i64 = 1;
 /// database. The `entities_fts` virtual table uses the `unicode61`
 /// tokenizer with diacritic folding so search matches "café" against
 /// "cafe" (matches the Python sidecar's behaviour).
+///
+/// ## What's here, what's not
+///
+/// `entities` and `entities_fts` exist because they back two features
+/// vaultdb-core doesn't have: an mtime-keyed incremental-update cache
+/// for the watcher / reconcile path (`entities`) and full-text search
+/// (`entities_fts`).
+///
+/// `parse_errors` is eduport's own UX concern — a frontmatter parse
+/// failure surfaces on the Status page until the user fixes the file.
+///
+/// `properties` and `entity_tags` used to live here too, indexing
+/// custom-property values and per-entity tags for the filter SQL.
+/// Filtering moved to `Vault::query` in `eduport_core::query`, so
+/// those tables and their write paths are gone — a single source of
+/// truth for "which entities match this filter" is now vaultdb.
 const DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS entities (
     file_id     TEXT PRIMARY KEY,
@@ -60,32 +76,11 @@ CREATE TABLE IF NOT EXISTS entities (
 
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 
-CREATE TABLE IF NOT EXISTS entity_tags (
-    file_id TEXT NOT NULL REFERENCES entities(file_id) ON DELETE CASCADE,
-    tag     TEXT NOT NULL,
-    PRIMARY KEY (file_id, tag)
-);
-CREATE INDEX IF NOT EXISTS idx_entity_tags_tag ON entity_tags(tag);
-
 CREATE TABLE IF NOT EXISTS parse_errors (
     path        TEXT PRIMARY KEY,
     message     TEXT NOT NULL,
     occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-CREATE TABLE IF NOT EXISTS properties (
-    file_id     TEXT NOT NULL REFERENCES entities(file_id) ON DELETE CASCADE,
-    key         TEXT NOT NULL,
-    type        TEXT NOT NULL,
-    value_text  TEXT,
-    value_num   REAL,
-    value_date  TEXT,
-    value_multi TEXT,
-    PRIMARY KEY (file_id, key)
-);
-CREATE INDEX IF NOT EXISTS idx_properties_key_text ON properties(key, value_text);
-CREATE INDEX IF NOT EXISTS idx_properties_key_num  ON properties(key, value_num);
-CREATE INDEX IF NOT EXISTS idx_properties_key_date ON properties(key, value_date);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
     body,
@@ -94,6 +89,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
     custom_text,
     tokenize="unicode61 remove_diacritics 2"
 );
+
+-- Drop legacy tables left over from the pre-vaultdb-query era. Filter
+-- evaluation now goes through `Vault::query`, so these were dead
+-- storage taking up disk + slowing down every upsert. Idempotent
+-- (`IF EXISTS`) so an old database upgrades cleanly on first open.
+DROP TABLE IF EXISTS properties;
+DROP TABLE IF EXISTS entity_tags;
 "#;
 
 /// Outcome of a [`init_schema`] call. The `fts_rebuilt` flag tells the
@@ -203,29 +205,30 @@ mod tests {
     }
 
     #[test]
-    fn cascade_delete_removes_dependent_rows() {
+    fn legacy_tables_dropped_on_init() {
+        // Older versions of eduport-core left a `properties` /
+        // `entity_tags` SQLite cache behind. The new DDL ships
+        // `DROP TABLE IF EXISTS` for both so existing databases
+        // upgrade cleanly. Simulate a v1-era database here and
+        // confirm init_schema cleans it up.
         let conn = open_in_memory();
-        init_schema(&conn).expect("init");
-        // Foreign keys are off by default in sqlite — turn them on so
-        // the ON DELETE CASCADE actually triggers. Caller code (the
-        // index module) does the same.
-        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
-        conn.execute(
-            "INSERT INTO entities(file_id, type, name, path, mtime_ns, body, frontmatter) \
-             VALUES ('x', 'note', 'X', '/x.md', 0, '', '{}')",
-            [],
+        // Hand-craft the legacy state.
+        conn.execute_batch(
+            "CREATE TABLE properties (file_id TEXT, key TEXT, value_text TEXT);
+             CREATE TABLE entity_tags (file_id TEXT, tag TEXT);",
         )
         .unwrap();
-        conn.execute(
-            "INSERT INTO entity_tags(file_id, tag) VALUES ('x', 'foo')",
-            [],
-        )
-        .unwrap();
-        conn.execute("DELETE FROM entities WHERE file_id = 'x'", [])
-            .unwrap();
-        let tag_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM entity_tags", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(tag_count, 0);
+        init_schema(&conn).expect("upgrade");
+
+        for legacy in ["properties", "entity_tags"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                    [legacy],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 0, "{legacy} table should be dropped");
+        }
     }
 }
