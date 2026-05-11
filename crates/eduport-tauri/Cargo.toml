@@ -27,6 +27,7 @@ tauri-build = { version = "2.6.1", features = [] }
 # phases will progressively replace HTTP-sidecar calls with eduport-
 # core function calls.
 eduport-core = { path = "../eduport-core" }
+vaultdb-core = { path = "../../../../researches/vaultdb/crates/vaultdb-core", version = "1.0.0" }
 
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
