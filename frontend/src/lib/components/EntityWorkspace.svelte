@@ -43,6 +43,7 @@
 		type View
 	} from '$lib/types/view';
 	import { treeHasConditions, type FilterTree } from '$lib/types/filter';
+	import { groupableFrom } from '$lib/utils/viewPipeline';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
 
@@ -110,9 +111,12 @@
 	// `kanban_by` which the kanban needs because its "ungrouped" state is
 	// status). Use the URL so saved views can capture it later.
 	const groupByKey = $derived(page.url.searchParams.get('group') ?? undefined);
-	const groupableProps = $derived(
-		customProperties.filter((p) => p.type === 'single-select')
-	);
+	// Phase C: any property type can be grouped on (single-select,
+	// multi-select, date — bucketed by month, number — bucketed by
+	// step, text — bucketed by first letter). The pipeline lives in
+	// `$lib/utils/viewPipeline`. Built-ins are now in the schema, so
+	// the user gets `country` / `role` / etc. as groupBy options too.
+	const groupableProps = $derived(groupableFrom(filterableProperties));
 	function setGroupByKey(key: string | undefined) {
 		const url = new URL(page.url);
 		if (!key) url.searchParams.delete('group');
@@ -120,10 +124,10 @@
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
-	// Single-select properties on Application that the user can group the kanban by.
+	// Kanban still requires single-select (board columns are discrete).
 	const kanbanGroupableProps = $derived(
 		type === 'application'
-			? customProperties.filter((p) => p.type === 'single-select')
+			? filterableProperties.filter((p) => p.type === 'single-select')
 			: []
 	);
 	const kanbanGroupKey = $derived(page.url.searchParams.get('kanban_by') ?? 'status');

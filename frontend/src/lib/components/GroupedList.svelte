@@ -1,10 +1,13 @@
 <script lang="ts">
 	/**
-	 * Wraps EntityList in collapsible sections grouped by a single-select
-	 * custom property. Falls back to a flat list when groupBy is null.
+	 * Wraps EntityList in collapsible sections grouped by any property
+	 * type. The bucket-extraction logic lives in `$lib/utils/viewPipeline`
+	 * so List, Table, and Board (Phase C) all behave the same.
 	 */
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
-	import { COLOR_CLASSES, type SingleSelectProperty } from '$lib/types/schema';
+	import { COLOR_CLASSES } from '$lib/types/schema';
+	import type { Property } from '$lib/types/schema';
+	import { groupItems, type GroupGranularity } from '$lib/utils/viewPipeline';
 	import EntityList from './EntityList.svelte';
 
 	let {
@@ -12,46 +15,36 @@
 		items,
 		details = {},
 		groupBy,
+		dateGranularity = 'month',
+		numberStep = 1,
 		selectedFileId,
 		onContextMenu
 	}: {
 		entityType: EntityType;
 		items: EntityListItem[];
 		details?: Record<string, EntityDetail | null>;
-		groupBy: SingleSelectProperty | null;
+		groupBy: Property | null;
+		dateGranularity?: GroupGranularity;
+		numberStep?: number;
 		selectedFileId?: string;
 		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
 	} = $props();
 
 	const buckets = $derived.by(() => {
 		if (!groupBy) return null;
-		const map: Record<
-			string,
-			{ value: string; label: string; color: string; items: EntityListItem[] }
-		> = {};
-		for (const opt of groupBy.options) {
-			map[opt.value] = { value: opt.value, label: opt.label, color: opt.color, items: [] };
-		}
-		const uncategorized: EntityListItem[] = [];
-		for (const item of items) {
-			const detail = details[item.file_id];
-			const v = (detail?.entity as Record<string, unknown> | undefined)?.[groupBy.key];
-			if (typeof v === 'string' && v in map) {
-				map[v].items.push(item);
-			} else {
-				uncategorized.push(item);
-			}
-		}
-		const list = Object.values(map);
-		if (uncategorized.length > 0) {
-			list.push({
-				value: '__uncategorized__',
-				label: 'Uncategorized',
-				color: 'gray',
-				items: uncategorized
-			});
-		}
-		return list;
+		// EntityDetail's `entity` field is unknown-keyed frontmatter;
+		// the pipeline reads it as Record<string, unknown>.
+		const detailsForPipeline = Object.fromEntries(
+			Object.entries(details).map(([k, d]) => [
+				k,
+				d ? { entity: d.entity as Record<string, unknown> } : null
+			])
+		);
+		return groupItems(items, detailsForPipeline, {
+			property: groupBy,
+			dateGranularity,
+			numberStep
+		});
 	});
 
 	let collapsed: Record<string, boolean> = $state({});
@@ -77,7 +70,7 @@
 				<span class="text-[10px] text-[var(--color-muted)]">{group.items.length}</span>
 			</button>
 			{#if !isCollapsed}
-				<EntityList items={group.items} type={entityType} {selectedFileId} {details} />
+				<EntityList items={group.items} type={entityType} {selectedFileId} {details} {onContextMenu} />
 			{/if}
 		{/each}
 	</div>

@@ -15,6 +15,7 @@
 	import { toasts } from '$lib/stores/toasts';
 	import { FIELD_DEFS, builtinKindToPropertyType, type FieldDef } from '$lib/entities/meta';
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
+	import { groupItems } from '$lib/utils/viewPipeline';
 	import type { Property, ValueWarning } from '$lib/types/schema';
 	import PropertyCell from './properties/PropertyCell.svelte';
 	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
@@ -49,51 +50,24 @@
 		onUpdated?: (fileId: string) => void;
 	} = $props();
 
-	// Map of groupValue → { label, color, items }. Built only when groupByKey
-	// names a single-select property in `properties`. Multi-select / number /
-	// date grouping is deferred — Notion supports them but they need bucket
-	// logic that isn't worth the complexity for v1.
+	// Phase C: groupBy is delegated to the centralized pipeline so
+	// every property type works (single-select, multi-select, date,
+	// number, text). Bucket logic, label/colour resolution, and
+	// uncategorized handling live in `$lib/utils/viewPipeline`.
 	const groupBy = $derived.by(() => {
 		if (!groupByKey) return null;
-		const prop = properties.find((p) => p.key === groupByKey);
-		if (!prop || prop.type !== 'single-select') return null;
-		return prop;
+		return properties.find((p) => p.key === groupByKey) ?? null;
 	});
 
 	const groups = $derived.by(() => {
 		if (!groupBy) return null;
-		const buckets: Record<
-			string,
-			{ value: string; label: string; color: string; items: EntityListItem[] }
-		> = {};
-		for (const opt of groupBy.options) {
-			buckets[opt.value] = {
-				value: opt.value,
-				label: opt.label,
-				color: opt.color,
-				items: []
-			};
-		}
-		const uncategorized: EntityListItem[] = [];
-		for (const item of items) {
-			const detail = details[item.file_id];
-			const v = (detail?.entity as Record<string, unknown> | undefined)?.[groupBy.key];
-			if (typeof v === 'string' && v in buckets) {
-				buckets[v].items.push(item);
-			} else {
-				uncategorized.push(item);
-			}
-		}
-		const ordered = Object.values(buckets);
-		if (uncategorized.length > 0) {
-			ordered.push({
-				value: '__uncategorized__',
-				label: 'Uncategorized',
-				color: 'gray',
-				items: uncategorized
-			});
-		}
-		return ordered;
+		const detailsForPipeline = Object.fromEntries(
+			Object.entries(details).map(([k, d]) => [
+				k,
+				d ? { entity: d.entity as Record<string, unknown> } : null
+			])
+		);
+		return groupItems(items, detailsForPipeline, { property: groupBy });
 	});
 
 	let collapsed: Record<string, boolean> = $state({});
