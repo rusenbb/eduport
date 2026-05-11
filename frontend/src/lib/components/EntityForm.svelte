@@ -4,10 +4,58 @@
 	import { toasts } from '$lib/stores/toasts';
 	import { FIELD_DEFS, TYPE_LABELS, typeTag, userTags, type FieldDef } from '$lib/entities/meta';
 	import type { EntityType } from '$lib/types';
+	import { schemaStore } from '$lib/stores/schema';
+	import type {
+		Property,
+		SelectOption,
+		SingleSelectProperty,
+		MultiSelectProperty
+	} from '$lib/types/schema';
 	import BodyEditor from './BodyEditor.svelte';
 	import TagPicker from './TagPicker.svelte';
 	import WikilinkListPicker from './WikilinkListPicker.svelte';
 	import WikilinkPicker from './WikilinkPicker.svelte';
+	import SelectCombobox from './properties/SelectCombobox.svelte';
+
+	// Helpers to look up the live (schema-backed) option list for a
+	// built-in select / multi-select. Falls back to FieldDef.options
+	// (kebab-case values, gray colour) if the schema hasn't loaded yet.
+	function liveOptionsFor(def: FieldDef): SelectOption[] {
+		if (def.kind !== 'select' && def.kind !== 'multi-select') return [];
+		const props = $schemaStore.schema?.types[type]?.properties ?? [];
+		const prop = props.find((p) => p.key === def.key);
+		if (prop && (prop.type === 'single-select' || prop.type === 'multi-select')) {
+			return (prop as SingleSelectProperty | MultiSelectProperty).options;
+		}
+		return (def.options ?? []).map((v) => ({ value: v, label: v, color: 'gray' as const }));
+	}
+
+	// User-typed labels become kebab-case option values. Mirrors the
+	// shape eduport-core's option_value_re enforces.
+	function toOptionValue(label: string): string {
+		return label
+			.toLowerCase()
+			.replace(/[^a-z0-9_-]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 64);
+	}
+
+	async function createOptionFor(def: FieldDef, label: string): Promise<SelectOption> {
+		const props = $schemaStore.schema?.types[type]?.properties ?? [];
+		const prop = props.find((p) => p.key === def.key) as
+			| SingleSelectProperty
+			| MultiSelectProperty
+			| undefined;
+		const existing = prop?.options ?? [];
+		const value = toOptionValue(label);
+		if (!value) throw new Error(`"${label}" can't be turned into an option value`);
+		if (existing.some((o) => o.value === value)) {
+			throw new Error(`Option ${value} already exists`);
+		}
+		const next: SelectOption = { value, label, color: 'gray' };
+		await schemaStore.patchProperty(type, def.key, { options: [...existing, next] });
+		return next;
+	}
 
 	let {
 		type,
@@ -208,38 +256,25 @@
 						<label class={def.kind === 'resources' || def.kind === 'wikilinks' ? 'block md:col-span-2' : 'block'}>
 							<span class="block text-xs uppercase tracking-wider text-[var(--color-muted)]">{def.label}</span>
 							{#if def.kind === 'select'}
-								<select
-									value={stringValue(def.key)}
-									onchange={(event) => setString(def.key, event.currentTarget.value)}
-									class="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
-								>
-									<option value="">Unset</option>
-									{#each def.options ?? [] as option}
-										<option value={option}>{option}</option>
-									{/each}
-								</select>
+								<div class="mt-1">
+									<SelectCombobox
+										value={stringValue(def.key)}
+										options={liveOptionsFor(def)}
+										onChange={(next) =>
+											(fieldValues = { ...fieldValues, [def.key]: next as string })}
+										onCreate={(label) => createOptionFor(def, label)}
+									/>
+								</div>
 							{:else if def.kind === 'multi-select'}
-								<div class="mt-1 flex flex-wrap gap-1.5">
-									{#each def.options ?? [] as option}
-										{@const selected = Array.isArray(fieldValues[def.key]) && fieldValues[def.key].includes(option)}
-										<button
-											type="button"
-											onclick={() => {
-												const cur: string[] = Array.isArray(fieldValues[def.key])
-													? fieldValues[def.key]
-													: [];
-												const next = selected
-													? cur.filter((v) => v !== option)
-													: [...cur, option];
-												fieldValues = { ...fieldValues, [def.key]: next };
-											}}
-											class="rounded border px-2 py-0.5 text-xs {selected
-												? 'border-[var(--color-accent)] bg-[var(--color-accent)]/20 text-[var(--color-text)]'
-												: 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-muted)] hover:text-[var(--color-text)]'}"
-										>
-											{option}
-										</button>
-									{/each}
+								<div class="mt-1">
+									<SelectCombobox
+										value={Array.isArray(fieldValues[def.key]) ? fieldValues[def.key] : []}
+										multi
+										options={liveOptionsFor(def)}
+										onChange={(next) =>
+											(fieldValues = { ...fieldValues, [def.key]: next as string[] })}
+										onCreate={(label) => createOptionFor(def, label)}
+									/>
 								</div>
 							{:else if def.kind === 'number'}
 								<input
