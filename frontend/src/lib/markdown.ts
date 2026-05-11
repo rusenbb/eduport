@@ -1,7 +1,6 @@
 import { marked } from 'marked';
 
 const WIKILINK_RE = /\[\[([^\]\[]+)\]\]/g;
-const VIEW_EMBED_LINE_RE = /^!\[\[view:\s*([^\]]+)\]\]\s*$/gm;
 const CHECKBOX_RE = /^- \[( |x|X)\] (.+)$/gm;
 
 export interface ParsedCheckbox {
@@ -40,15 +39,7 @@ export function renderMarkdown(body: string): RenderResult {
 	// renders this way, and the user authors in an Obsidian-style
 	// vault — without this, prose typed with newline breaks looks
 	// like one run-on paragraph.
-	// Substitute view embeds BEFORE handing off to marked. The
-	// `![[view: name]]` line shape would otherwise look like an image
-	// reference to marked and silently disappear.
-	const stamped = body.replace(VIEW_EMBED_LINE_RE, (_m, name) => {
-		const safe = String(name).trim().replace(/"/g, '&quot;');
-		return `<div class="view-embed" data-view="${safe}"></div>`;
-	});
-
-	const html = marked.parse(stamped, { async: false, breaks: true, gfm: true }) as string;
+	const html = marked.parse(body, { async: false, breaks: true, gfm: true }) as string;
 	const linked = html.replace(WIKILINK_RE, (_match, target) => {
 		const safe = String(target).trim().replace(/"/g, '&quot;');
 		return `<a class="wikilink text-[var(--color-accent)] hover:underline" data-target="${safe}">${safe}</a>`;

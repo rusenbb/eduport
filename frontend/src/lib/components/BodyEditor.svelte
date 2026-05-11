@@ -8,7 +8,6 @@
 	import Placeholder from '@tiptap/extension-placeholder';
 	import { Markdown } from 'tiptap-markdown';
 	import { Wikilink } from '$lib/editor/wikilink';
-	import { ViewEmbed } from '$lib/editor/view-embed';
 	import { SlashMenu } from '$lib/editor/slash-menu';
 	import {
 		markdownToTiptapHtmlPreprocess,
@@ -45,7 +44,6 @@
 					transformCopiedText: true
 				}),
 				Wikilink,
-				ViewEmbed,
 				SlashMenu
 			],
 			content: markdownToTiptapHtmlPreprocess(value),
