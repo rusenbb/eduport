@@ -6,6 +6,7 @@
 		type,
 		icon = '',
 		selected = false,
+		multiSelected = false,
 		summary = '',
 		onclick,
 		onContextMenu
@@ -14,8 +15,9 @@
 		type: EntityType;
 		icon?: string;
 		selected?: boolean;
+		multiSelected?: boolean;
 		summary?: string;
-		onclick?: () => void;
+		onclick?: (event: MouseEvent) => void;
 		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
 	} = $props();
 </script>
@@ -23,7 +25,8 @@
 <button
 	class="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left text-sm text-[var(--color-text)] hover:bg-white/[0.025]"
 	class:selected
-	{onclick}
+	class:multi-selected={multiSelected}
+	onclick={(event) => onclick?.(event)}
 	oncontextmenu={(e) => {
 		if (onContextMenu) {
 			e.preventDefault();
@@ -48,5 +51,9 @@
 <style>
 	.selected {
 		background-color: rgba(108, 182, 255, 0.08);
+	}
+	.multi-selected {
+		background-color: rgba(108, 182, 255, 0.16);
+		box-shadow: inset 3px 0 0 var(--color-accent);
 	}
 </style>

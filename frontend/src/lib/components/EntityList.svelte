@@ -11,6 +11,8 @@
 		type,
 		selectedFileId,
 		details = {},
+		selection = new Set(),
+		onSelectionChange,
 		onContextMenu,
 		filtersActive = false,
 		onClearFilters
@@ -19,17 +21,43 @@
 		type: EntityType;
 		selectedFileId?: string;
 		details?: Record<string, EntityDetail | null>;
+		selection?: Set<string>;
+		onSelectionChange?: (next: Set<string>) => void;
 		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
 		filtersActive?: boolean;
 		onClearFilters?: () => void;
 	} = $props();
 
+	let lastClickedIndex = $state<number | null>(null);
+
 	function navigate(fileId: string) {
-		// Preserve query params (view, filters, sort, group, view_id) when
-		// jumping into the detail panel so the list view stays as configured.
 		const url = new URL(page.url);
 		url.pathname = `/${type}/${fileId}`;
 		void goto(url, { keepFocus: true });
+	}
+
+	function handleClick(event: MouseEvent, item: EntityListItem, idx: number) {
+		const modifierActive = event.ctrlKey || event.metaKey;
+		const rangeActive = event.shiftKey;
+
+		// Plain click: clear any multi-selection and navigate.
+		if (!modifierActive && !rangeActive) {
+			if (selection.size > 0) onSelectionChange?.(new Set());
+			lastClickedIndex = idx;
+			navigate(item.file_id);
+			return;
+		}
+
+		const next = new Set(selection);
+		if (rangeActive && lastClickedIndex !== null) {
+			const [from, to] = [lastClickedIndex, idx].sort((a, b) => a - b);
+			for (let i = from; i <= to; i++) next.add(items[i].file_id);
+		} else if (modifierActive) {
+			if (next.has(item.file_id)) next.delete(item.file_id);
+			else next.add(item.file_id);
+			lastClickedIndex = idx;
+		}
+		onSelectionChange?.(next);
 	}
 </script>
 
@@ -54,14 +82,15 @@
 	</div>
 {:else}
 	<div class="flex flex-col">
-		{#each items as item (item.file_id)}
+		{#each items as item, idx (item.file_id)}
 			<EntityRow
 				{item}
 				{type}
 				icon={extractIcon(details[item.file_id])}
 				selected={item.file_id === selectedFileId}
+				multiSelected={selection.has(item.file_id)}
 				summary={summarizeItem(item, details[item.file_id])}
-				onclick={() => navigate(item.file_id)}
+				onclick={(event) => handleClick(event, item, idx)}
 				{onContextMenu}
 			/>
 		{/each}
