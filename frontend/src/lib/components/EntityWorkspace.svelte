@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getContext, onMount } from 'svelte';
+	import { getContext, onMount, untrack } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { deleteEntity, getEntity, listEntities } from '$lib/api/entities';
 	import { CoreCommandError, listenCoreEvent } from '$lib/api/client';
@@ -219,9 +219,15 @@
 			// SQL table only knows about custom (user-declared) schema
 			// keys, so built-in keys (name, country, city, …) must be
 			// handled in-memory against the fetched detail records.
-			// Anything that isn't a custom-property key is treated as
-			// built-in, including the synthetic "Name" filter.
-			const customKeys = new Set(customProperties.map((p) => p.key));
+			// `untrack` so reading `customProperties` here doesn't add
+			// it to the calling $effect's dep set — that re-introduced
+			// the list-reload flicker on item click. customProperties
+			// only changes when the schema does, which goes through
+			// the watcher's schema_changed branch and re-triggers
+			// loadList explicitly anyway.
+			const customKeys = untrack(
+				() => new Set(customProperties.map((p) => p.key))
+			);
 			const customTextFilters: Record<string, string> = {};
 			const builtinTextFilters: Record<string, string> = {};
 			for (const [k, v] of Object.entries(propertyFilters.text)) {
