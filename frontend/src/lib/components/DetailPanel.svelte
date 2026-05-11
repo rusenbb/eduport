@@ -7,6 +7,7 @@
 	import { cloneFileToFolder, openInObsidian, openPath, revealInFileManager, saveCopyAs } from '$lib/tauri';
 	import type { EntityDetail } from '$lib/types';
 	import { onMount } from 'svelte';
+	import { extractIcon, extractCover } from '$lib/entities/cosmetics';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
 	import PropertyConfigDialog from './properties/PropertyConfigDialog.svelte';
@@ -33,6 +34,8 @@
 
 	const isDocument = $derived(detail.type === 'document');
 	const filePath = $derived(detail.entity.file as string | undefined);
+	const icon = $derived(extractIcon(detail));
+	const cover = $derived(extractCover(detail));
 	let relatedEmails: EntityDetail[] = $state([]);
 	let threadInReplyTo: EntityDetail | null = $state(null);
 	let threadReplies: EntityDetail[] = $state([]);
@@ -317,7 +320,17 @@
 </script>
 
 <div class="flex h-full w-full flex-col overflow-auto bg-[var(--color-panel)]">
+	{#if cover}
+		<div
+			class="h-32 w-full border-b border-[var(--color-border)] bg-cover bg-center"
+			style="background-image: url('{cover}')"
+			aria-hidden="true"
+		></div>
+	{/if}
 	<header class="flex items-start gap-3 border-b border-[var(--color-border)] p-4">
+		{#if icon}
+			<span class="text-3xl leading-none" aria-hidden="true">{icon}</span>
+		{/if}
 		<div class="min-w-0 flex-1">
 			<h2 class="truncate text-lg font-semibold">{detail.entity.name as string}</h2>
 			<code class="mt-1 block truncate text-xs text-[var(--color-muted)]">{detail.file_id}</code>

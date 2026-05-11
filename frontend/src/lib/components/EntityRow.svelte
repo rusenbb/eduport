@@ -4,6 +4,7 @@
 	let {
 		item,
 		type,
+		icon = '',
 		selected = false,
 		summary = '',
 		onclick,
@@ -11,6 +12,7 @@
 	}: {
 		item: EntityListItem;
 		type: EntityType;
+		icon?: string;
 		selected?: boolean;
 		summary?: string;
 		onclick?: () => void;
@@ -19,7 +21,7 @@
 </script>
 
 <button
-	class="grid w-full grid-cols-[1fr_auto] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left text-sm text-[var(--color-text)] hover:bg-white/[0.025]"
+	class="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left text-sm text-[var(--color-text)] hover:bg-white/[0.025]"
 	class:selected
 	{onclick}
 	oncontextmenu={(e) => {
@@ -29,6 +31,11 @@
 		}
 	}}
 >
+	{#if icon}
+		<span class="text-lg leading-none" aria-hidden="true">{icon}</span>
+	{:else}
+		<span class="w-0"></span>
+	{/if}
 	<div class="min-w-0">
 		<div class="truncate font-medium">{item.name}</div>
 		{#if summary}

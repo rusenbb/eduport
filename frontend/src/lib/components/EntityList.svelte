@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import { summarizeItem } from '$lib/entities/meta';
+	import { extractIcon } from '$lib/entities/cosmetics';
 	import EntityRow from './EntityRow.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -57,6 +58,7 @@
 			<EntityRow
 				{item}
 				{type}
+				icon={extractIcon(details[item.file_id])}
 				selected={item.file_id === selectedFileId}
 				summary={summarizeItem(item, details[item.file_id])}
 				onclick={() => navigate(item.file_id)}
