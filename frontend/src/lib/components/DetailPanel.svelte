@@ -662,7 +662,7 @@
 						class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs hover:bg-white/10"
 						onclick={() => goto(backTarget(bl.type, bl.src_file_id))}
 					>
-						{bl.name ?? bl.src_file_id} <span class="text-[var(--color-muted)]">· {bl.field}</span>
+						{bl.name ?? bl.src_file_id}
 					</button>
 				{/each}
 			</div>

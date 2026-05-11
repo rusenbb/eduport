@@ -18,6 +18,7 @@ readme = "../../README.md"
 # crates.io), cargo silently falls back to the version requirement.
 vaultdb-core = { path = "../../../../researches/vaultdb/crates/vaultdb-core", version = "1.0.0" }
 vaultdb-fts = { path = "../../../../researches/vaultdb/crates/vaultdb-fts", version = "1.0.0" }
+vaultdb-orm = { path = "../../../../researches/vaultdb/crates/vaultdb-orm", version = "1.0.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

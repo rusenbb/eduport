@@ -143,7 +143,10 @@ fn start_watcher(state: &Arc<EduportState>, app_handle: tauri::AppHandle) -> Res
         // emit a Tauri event so the frontend can refresh.
         handle_watcher_event(&state_for_callback, &app_handle, event);
     })?;
-    *state.watcher.lock().expect("watcher mutex poisoned") = Some(watcher);
+    *state
+        .watcher
+        .lock()
+        .map_err(|_| eduport_core::EduportError::Poisoned("watcher"))? = Some(watcher);
     Ok(())
 }
 
@@ -258,19 +261,21 @@ fn event_payload(event: &VaultEvent) -> serde_json::Value {
 }
 
 fn read_and_parse(path: &Path) -> Result<(eduport_core::entity::Entity, String), String> {
-    let raw = std::fs::read_to_string(path).map_err(|e| format!("read failed: {e}"))?;
-    let (yaml, body) = split_frontmatter(&raw)
-        .ok_or_else(|| "missing or malformed `---` frontmatter delimiters".to_string())?;
-    let entity = eduport_core::entity::Entity::from_yaml(yaml)?;
-    Ok((entity, body.to_string()))
-}
-
-fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
-    let trimmed = raw.strip_prefix("---\n")?;
-    let close = trimmed.find("\n---\n")?;
-    let yaml = &trimmed[..close];
-    let body = &trimmed[close + "\n---\n".len()..];
-    Some((yaml, body))
+    let record = vaultdb_core::frontmatter::load_record_with_content(path)
+        .map_err(|e| format!("read failed: {e}"))?;
+    let raw = record.raw_content.as_deref().unwrap_or("");
+    let body = match vaultdb_core::frontmatter::extract_frontmatter(raw) {
+        Some((_, body_start)) => raw[body_start..].to_string(),
+        None => return Err("missing or malformed `---` frontmatter delimiters".into()),
+    };
+    // The vault_root used for virtual fields (_path, _modified, etc.)
+    // is the path's parent — best-effort, since the watcher doesn't
+    // carry the vault handle here. Virtual fields are only consumed
+    // by typed accessors; the entity body itself doesn't depend on
+    // them.
+    let vault_root = path.parent().unwrap_or(path);
+    let entity = eduport_core::entity::Entity::from_record(&record, vault_root)?;
+    Ok((entity, body))
 }
 
 // ── Helpers used by command handlers ──────────────────────────────

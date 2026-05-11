@@ -48,13 +48,40 @@ pub use wikilink::WikiLink;
 
 /// Crate-level error type. Wraps vaultdb-core errors plus eduport-
 /// specific failure modes (schema validation, FTS5 reconcile, etc.).
+///
+/// The structured variants (`NotFound`, `Conflict`, `Invalid`,
+/// `Poisoned`) map onto stable `CommandError` codes at the Tauri
+/// boundary, so frontend can branch on error class without parsing
+/// the message text.
 #[derive(Debug, thiserror::Error)]
 pub enum EduportError {
     #[error(transparent)]
     Vaultdb(#[from] vaultdb_core::VaultdbError),
 
+    /// Schema validation, FTS reconcile, etc. Catch-all for
+    /// schema-shaped failures that don't fit a more specific variant.
     #[error("schema error: {0}")]
     Schema(String),
+
+    /// Requested resource (entity, property, view) doesn't exist.
+    #[error("not found: {0}")]
+    NotFound(String),
+
+    /// Resource already exists or otherwise conflicts with existing
+    /// state — duplicate property key, duplicate view id, etc.
+    #[error("conflict: {0}")]
+    Conflict(String),
+
+    /// User-supplied input failed validation.
+    #[error("invalid: {0}")]
+    Invalid(String),
+
+    /// An internal lock was poisoned — a previous holder panicked
+    /// while the mutex was held. The lock is still recoverable but
+    /// the in-memory state under it is suspect; callers should
+    /// usually re-read from disk.
+    #[error("internal lock poisoned: {0}")]
+    Poisoned(&'static str),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),

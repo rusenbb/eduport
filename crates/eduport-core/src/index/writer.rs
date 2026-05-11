@@ -77,7 +77,7 @@ pub(crate) fn custom_text_for_fts5(entity: &Entity, schema: &Schema) -> String {
             continue;
         };
         if matches!(prop.kind(), PropertyKind::Text | PropertyKind::Url)
-            && let serde_yaml::Value::String(s) = value
+            && let serde_json::Value::String(s) = value
         {
             parts.push(s.clone());
         }
@@ -173,7 +173,7 @@ mod tests {
         };
         n.custom.insert(
             "summary".into(),
-            serde_yaml::Value::String("hello there".into()),
+            serde_json::Value::String("hello there".into()),
         );
 
         let entity = Entity::Note(n);

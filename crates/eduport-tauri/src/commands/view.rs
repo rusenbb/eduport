@@ -17,12 +17,7 @@ use crate::core_state::EduportStateHandle;
 
 impl From<ViewStoreError> for CommandError {
     fn from(e: ViewStoreError) -> Self {
-        match e {
-            ViewStoreError::Conflict(m) => Self::conflict(m),
-            ViewStoreError::NotFound(m) => Self::not_found(m),
-            ViewStoreError::Invalid(m) => Self::invalid(m),
-            ViewStoreError::Eduport(e) => Self::internal(e.to_string()),
-        }
+        Self::from(eduport_core::EduportError::from(e))
     }
 }
 

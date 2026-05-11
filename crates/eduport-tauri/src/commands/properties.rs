@@ -153,7 +153,6 @@ pub fn core_filter_entities_by_properties(
             entity_type: s.entity_type,
             name: s.name,
             path: s.path,
-            mtime_ns: 0,
         })
         .collect())
 }

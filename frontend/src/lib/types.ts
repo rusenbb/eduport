@@ -26,12 +26,10 @@ export interface EntityListItem {
 	type: EntityType;
 	name: string;
 	path: string;
-	mtime_ns: number;
 }
 
 export interface Backlink {
 	src_file_id: string;
-	field: string;
 	type?: EntityType;
 	name?: string;
 }

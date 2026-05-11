@@ -37,7 +37,6 @@ pub struct EntityListItem {
     pub entity_type: String,
     pub name: String,
     pub path: String,
-    pub mtime_ns: i64,
 }
 
 impl From<EntitySummaryView> for EntityListItem {
@@ -47,11 +46,6 @@ impl From<EntitySummaryView> for EntityListItem {
             entity_type: s.entity_type,
             name: s.name,
             path: s.path,
-            // The frontend doesn't actually read mtime_ns; the
-            // previous SQLite cache stored it for the watcher's
-            // incremental-update path, which is unaffected by this
-            // command. Setting to 0 keeps the response shape stable.
-            mtime_ns: 0,
         }
     }
 }
@@ -59,7 +53,6 @@ impl From<EntitySummaryView> for EntityListItem {
 #[derive(Debug, Serialize)]
 pub struct Backlink {
     pub src_file_id: String,
-    pub field: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub entity_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,7 +194,10 @@ pub fn core_entity_resolve(
     target: String,
 ) -> Result<ResolveResult, CommandError> {
     let st = require_state(&state)?;
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     // Match against either the file_id (filename stem) or the entity
     // name. Type comes from the FTS row's joined tags column —
     // `eduport-type/<value>` is the discriminator. The bespoke
@@ -319,40 +315,88 @@ pub fn core_entity_delete(
     let path = st.entity_store.path_for(entity_type, &file_id);
     note_self_write(&st, &path);
     st.entity_store.delete(entity_type, &file_id, false)?;
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     index_delete(index.conn(), &file_id)?;
     Ok(())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-/// Convert an [`Entity`] back into a serde_json::Value so the
-/// frontend gets typed JSON. Goes through YAML → Value to share the
-/// canonical serializer with the on-disk format — round-trips with
-/// the file the user reads.
+/// Convert an [`Entity`] back into a serde_json::Value for the
+/// frontend. Direct serde_json dispatch per variant — no YAML round
+/// trip, since the typed structs now flatten their custom-property
+/// tail into `serde_json::Value` natively.
 fn entity_to_json(entity: &Entity) -> Result<JsonValue, CommandError> {
-    let yaml = entity
-        .to_yaml()
-        .map_err(|e| CommandError::internal(format!("entity serialise: {e}")))?;
-    let v: serde_yaml::Value = serde_yaml::from_str(&yaml)
-        .map_err(|e| CommandError::internal(format!("yaml→value: {e}")))?;
-    serde_json::to_value(v).map_err(|e| CommandError::internal(format!("value→json: {e}")))
+    let to_value = |r: Result<JsonValue, serde_json::Error>| {
+        r.map_err(|e| CommandError::internal(format!("entity serialise: {e}")))
+    };
+    match entity {
+        Entity::University(e) => to_value(serde_json::to_value(e)),
+        Entity::Lab(e) => to_value(serde_json::to_value(e)),
+        Entity::Person(e) => to_value(serde_json::to_value(e)),
+        Entity::Program(e) => to_value(serde_json::to_value(e)),
+        Entity::Application(e) => to_value(serde_json::to_value(e)),
+        Entity::Document(e) => to_value(serde_json::to_value(e)),
+        Entity::Email(e) => to_value(serde_json::to_value(e)),
+        Entity::Note(e) => to_value(serde_json::to_value(e)),
+    }
 }
 
 fn json_to_entity(frontmatter: JsonValue, expected: EntityType) -> Result<Entity, CommandError> {
-    let yaml_value: serde_yaml::Value = serde_json::from_value(frontmatter)
-        .map_err(|e| CommandError::invalid(format!("invalid frontmatter shape: {e}")))?;
-    let yaml = serde_yaml::to_string(&yaml_value)
-        .map_err(|e| CommandError::internal(format!("frontmatter→yaml: {e}")))?;
-    let entity = Entity::from_yaml(&yaml).map_err(CommandError::invalid)?;
-    if entity.entity_type() != expected {
+    // Look at the embedded `eduport-type/<x>` tag and compare to the
+    // command's `expected` type before dispatching deserialisation —
+    // catches a buggy frontend that sends a payload-vs-route mismatch.
+    let actual = json_eduport_type(&frontmatter);
+    if actual != Some(expected) {
         return Err(CommandError::invalid(format!(
             "frontmatter declares {} but command targets {}",
-            entity.entity_type(),
-            expected
+            actual
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "no entity type".into()),
+            expected,
         )));
     }
-    Ok(entity)
+    fn invalid_shape(e: serde_json::Error) -> CommandError {
+        CommandError::invalid(format!("invalid frontmatter shape: {e}"))
+    }
+    Ok(match expected {
+        EntityType::University => {
+            Entity::University(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Lab => Entity::Lab(serde_json::from_value(frontmatter).map_err(invalid_shape)?),
+        EntityType::Person => {
+            Entity::Person(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Program => {
+            Entity::Program(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Application => {
+            Entity::Application(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Document => {
+            Entity::Document(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Email => {
+            Entity::Email(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+        EntityType::Note => {
+            Entity::Note(serde_json::from_value(frontmatter).map_err(invalid_shape)?)
+        }
+    })
+}
+
+fn json_eduport_type(json: &JsonValue) -> Option<EntityType> {
+    let tags = json.get("tags")?.as_array()?;
+    for v in tags {
+        let s = v.as_str()?;
+        if let Some(rest) = s.strip_prefix(eduport_core::entity::EDUPORT_TYPE_PREFIX) {
+            return rest.parse::<EntityType>().ok();
+        }
+    }
+    None
 }
 
 /// Generate a fresh `file_id` for a new entity. Uses the same shape
@@ -384,11 +428,11 @@ fn generate_unique_file_id(
 }
 
 fn note_self_write(state: &EduportState, path: &Path) {
-    if let Some(watcher) = state
-        .watcher
-        .lock()
-        .expect("watcher mutex poisoned")
-        .as_ref()
+    // Poison would mean a panicked watcher-mutating thread. The write
+    // itself isn't blocked; we just skip the debounce nudge and let
+    // the watcher pick the file up on its normal scan.
+    if let Ok(guard) = state.watcher.lock()
+        && let Some(watcher) = guard.as_ref()
     {
         watcher.note_self_write(path);
     }
@@ -409,7 +453,10 @@ fn upsert_into_index(
         .map(|d| d.as_nanos() as i64)
         .unwrap_or(0);
     let schema = state.schema_store.current().ok();
-    let index = state.index.lock().expect("index mutex poisoned");
+    let index = state
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     index_upsert(
         index.conn(),
         file_id,
@@ -449,26 +496,47 @@ fn collect_backlinks(state: &Arc<EduportState>, name: &str) -> Vec<Backlink> {
         Ok(g) => g,
         Err(_) => return Vec::new(),
     };
-    graph
+    let incoming: Vec<String> = graph
         .incoming_links(name)
         .into_iter()
-        .map(|src_name| Backlink {
-            src_file_id: src_name.to_string(),
-            field: String::new(),
-            entity_type: lookup_kind_for_name(state, src_name),
-            name: Some(src_name.to_string()),
+        .map(str::to_string)
+        .collect();
+    if incoming.is_empty() {
+        return Vec::new();
+    }
+    // Build a one-shot {file_stem → entity_type} lookup by scanning
+    // the vault root once. Previously this was per-backlink SQL
+    // against the FTS `entities.type` column — which doesn't exist on
+    // the shared vaultdb-fts schema (the column was dropped when
+    // storage moved off the bespoke table), so the SQL silently
+    // returned None for every source. vaultdb's link graph is built
+    // from the same vault scan, so the cost is amortised.
+    let kind_by_name: std::collections::HashMap<String, String> = vault
+        .query(&vaultdb_core::Query {
+            folder: String::new(),
+            filter: None,
+            select: None,
+            sort: None,
+            limit: None,
+            recursive: false,
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| {
+            let stem = r.path.file_stem()?.to_str()?.to_string();
+            let kind = eduport_core::entity::record_eduport_type(&r)?;
+            Some((stem, kind.to_string()))
+        })
+        .collect();
+    incoming
+        .into_iter()
+        .map(|src_name| {
+            let entity_type = kind_by_name.get(&src_name).cloned();
+            Backlink {
+                src_file_id: src_name.clone(),
+                entity_type,
+                name: Some(src_name),
+            }
         })
         .collect()
-}
-
-fn lookup_kind_for_name(state: &EduportState, name: &str) -> Option<String> {
-    let index = state.index.lock().ok()?;
-    index
-        .conn()
-        .query_row(
-            "SELECT type FROM entities WHERE name = ?1 LIMIT 1",
-            [name],
-            |r| r.get::<_, String>(0),
-        )
-        .ok()
 }

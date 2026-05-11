@@ -175,13 +175,11 @@ fn trash_path_for(data_folder: &Path, name: &str) -> Result<PathBuf, CommandErro
 /// stray non-entity .md that wandered into `.trash/` shouldn't
 /// restore.
 fn infer_original_path(state: &crate::core_state::EduportState, trashed: &Path) -> Option<PathBuf> {
-    let raw = std::fs::read_to_string(trashed).ok()?;
-    let trimmed = raw.strip_prefix("---\n")?;
-    let close = trimmed.find("\n---\n")?;
-    let yaml = &trimmed[..close];
-    // Parse purely as a validity check — the entity type tag must
-    // be present for this to be a real eduport entity.
-    let _entity = Entity::from_yaml(yaml).ok()?;
+    // Parse purely as a validity check — the entity type tag must be
+    // present for this to be a real eduport entity. Routed through
+    // vaultdb's canonical loader so we share the frontmatter parser.
+    let record = vaultdb_core::frontmatter::load_record(trashed).ok()?;
+    let _entity = Entity::from_record(&record, &state.data_folder).ok()?;
     let stem = trashed.file_stem()?.to_str()?;
     Some(state.data_folder.join(format!("{stem}.md")))
 }
