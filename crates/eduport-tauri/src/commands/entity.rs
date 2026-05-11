@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use eduport_core::entity::Entity;
 use eduport_core::index::writer::{delete_entity as index_delete, upsert_entity as index_upsert};
-use eduport_core::query::{query_for_filter, EntitySummaryView, FilterInput};
+use eduport_core::query::{query_for_children, query_for_filter, EntitySummaryView, FilterInput};
 use eduport_core::EntityType;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -119,6 +119,32 @@ pub fn core_entity_list(
         sort_dir: "asc",
     };
     let q = query_for_filter(entity_type, &input);
+    let records = st
+        .entity_store
+        .vault()
+        .query(&q)
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
+    Ok(records
+        .iter()
+        .filter_map(EntitySummaryView::from_record)
+        .map(Into::into)
+        .collect())
+}
+
+/// List entities whose `parent` frontmatter field equals `parent_file_id`.
+/// Cross-type — a Person can be a sub-page of a University, a Note can
+/// be a sub-page of an Application, etc. Backs the page-hierarchy
+/// "sub-pages" UI in DetailPanel.
+///
+/// Returns a flat list sorted by `name`. The frontend handles the
+/// tree shape (this is one fetch per node, lazy on expand).
+#[tauri::command]
+pub fn core_entity_children(
+    state: State<'_, EduportStateHandle>,
+    parent_file_id: String,
+) -> Result<Vec<EntityListItem>, CommandError> {
+    let st = require_state(&state)?;
+    let q = query_for_children(&parent_file_id);
     let records = st
         .entity_store
         .vault()

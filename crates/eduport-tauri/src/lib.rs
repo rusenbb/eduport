@@ -141,6 +141,7 @@ pub fn run() {
             reveal::reveal_in_file_manager,
             // eduport-core entity CRUD
             commands::entity::core_entity_list,
+            commands::entity::core_entity_children,
             commands::entity::core_entity_get,
             commands::entity::core_entity_resolve,
             commands::entity::core_entity_create,
