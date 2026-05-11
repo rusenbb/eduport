@@ -45,6 +45,28 @@
 		value = next;
 		onChange?.(next);
 	}
+
+	function onKey(event: KeyboardEvent) {
+		// ESC behaviour: if the dropdown is open, consume the key to
+		// close just the dropdown. Otherwise let it bubble so the
+		// surrounding dialog (EntityForm) can handle it. Without
+		// stopPropagation, EntityForm's window-level keydown listener
+		// would close the whole edit dialog every time the user hit
+		// ESC to dismiss the suggestions popover.
+		if (event.key === 'Escape' && open) {
+			event.preventDefault();
+			event.stopPropagation();
+			open = false;
+		}
+	}
+
+	function onBlur() {
+		// Defer so a click on a dropdown row registers before the
+		// dropdown closes. Same idiom as SelectCombobox.
+		setTimeout(() => {
+			open = false;
+		}, 120);
+	}
 </script>
 
 <div class="relative">
@@ -52,6 +74,8 @@
 		<input
 			bind:value={query}
 			onfocus={() => (open = true)}
+			onkeydown={onKey}
+			onblur={onBlur}
 			placeholder={selected ? selected.name : placeholder}
 			class="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
 		/>
