@@ -116,6 +116,13 @@ pub enum Property {
     Relation(RelationProperty),
 }
 
+/// Skip-serializing helper for `is_builtin: bool` — keeps the YAML
+/// clean for user-defined properties (the common case) and only emits
+/// the flag for built-ins.
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextProperty {
@@ -125,6 +132,8 @@ pub struct TextProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
 }
@@ -138,6 +147,8 @@ pub struct NumberProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +164,8 @@ pub struct DateProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     /// ISO date string `YYYY-MM-DD`. Validated at use sites; we keep
     /// the on-the-wire shape as a String to match Python's behaviour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,6 +181,8 @@ pub struct CheckboxProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<bool>,
 }
@@ -181,6 +196,8 @@ pub struct SingleSelectProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default)]
     pub options: Vec<SelectOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -196,6 +213,8 @@ pub struct MultiSelectProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default)]
     pub options: Vec<SelectOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +230,8 @@ pub struct UrlProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
 }
@@ -224,6 +245,8 @@ pub struct RelationProperty {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_builtin: bool,
     /// `None` (or absent) means any entity type is permitted as the target.
     /// An empty list is rejected — use `None` instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,6 +282,28 @@ impl Property {
             Property::MultiSelect(_) => PropertyKind::MultiSelect,
             Property::Url(_) => PropertyKind::Url,
             Property::Relation(_) => PropertyKind::Relation,
+        }
+    }
+
+    /// Whether this property is system-seeded (built-in) rather than
+    /// user-defined. Built-in properties are added to every fresh
+    /// schema by [`crate::schema::builtins::seeded_builtins`] and are
+    /// protected against deletion or type change.
+    ///
+    /// Their *options* (for select-typed built-ins) and `name` /
+    /// `description` are still patchable by the user — that's the
+    /// "Notion-style" affordance that lets `country` start with a
+    /// curated list and grow as the user encounters new ones.
+    pub fn is_builtin(&self) -> bool {
+        match self {
+            Property::Text(p) => p.is_builtin,
+            Property::Number(p) => p.is_builtin,
+            Property::Date(p) => p.is_builtin,
+            Property::Checkbox(p) => p.is_builtin,
+            Property::SingleSelect(p) => p.is_builtin,
+            Property::MultiSelect(p) => p.is_builtin,
+            Property::Url(p) => p.is_builtin,
+            Property::Relation(p) => p.is_builtin,
         }
     }
 
@@ -364,10 +409,14 @@ mod tests {
             name: "Summary".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         });
         let y = serde_yaml::to_string(&p).unwrap();
         assert!(y.contains("type: text"));
+        // is_builtin defaults to false and skip-serialises so user-property
+        // YAML stays clean.
+        assert!(!y.contains("is_builtin"));
         let back: Property = serde_yaml::from_str(&y).unwrap();
         assert_eq!(back, p);
     }
@@ -379,6 +428,7 @@ mod tests {
             name: "Advisor".into(),
             description: None,
             required: false,
+            is_builtin: false,
             target_types: Some(vec![EntityType::Person, EntityType::Lab]),
             default: None,
         });
@@ -388,12 +438,35 @@ mod tests {
     }
 
     #[test]
+    fn round_trip_builtin_emits_flag() {
+        let p = Property::SingleSelect(SingleSelectProperty {
+            key: "country".into(),
+            name: "Country".into(),
+            description: None,
+            required: false,
+            is_builtin: true,
+            options: vec![SelectOption {
+                value: "usa".into(),
+                label: "USA".into(),
+                color: OptionColor::Blue,
+            }],
+            default: None,
+        });
+        let y = serde_yaml::to_string(&p).unwrap();
+        assert!(y.contains("is_builtin: true"));
+        let back: Property = serde_yaml::from_str(&y).unwrap();
+        assert_eq!(back, p);
+        assert!(back.is_builtin());
+    }
+
+    #[test]
     fn validate_rejects_bad_key() {
         let p = Property::Text(TextProperty {
             key: "Bad-Key".into(),
             name: "n".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         });
         assert!(p.validate().is_err());
@@ -406,6 +479,7 @@ mod tests {
             name: "Status".into(),
             description: None,
             required: false,
+            is_builtin: false,
             options: vec![
                 SelectOption {
                     value: "draft".into(),
@@ -430,6 +504,7 @@ mod tests {
             name: "Status".into(),
             description: None,
             required: false,
+            is_builtin: false,
             options: vec![SelectOption {
                 value: "draft".into(),
                 label: "Draft".into(),
@@ -447,6 +522,7 @@ mod tests {
             name: "Rel".into(),
             description: None,
             required: false,
+            is_builtin: false,
             target_types: Some(vec![]),
             default: None,
         });
@@ -460,6 +536,7 @@ mod tests {
             name: "Due".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: Some("13/05/2026".into()),
         });
         assert!(p.validate().is_err());
@@ -472,6 +549,7 @@ mod tests {
             name: "Home".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: Some("not a url".into()),
         });
         assert!(p.validate().is_err());

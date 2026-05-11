@@ -18,14 +18,16 @@
 //!   constraints (no rename of existing select option values, no type
 //!   change post-creation, etc.).
 
+pub mod builtins;
 pub mod property;
 #[allow(clippy::module_inception)]
 pub mod schema;
 pub mod store;
 
+pub use builtins::{is_builtin_key, seeded_builtins};
 pub use property::{
     CheckboxProperty, DateProperty, MultiSelectProperty, NumberProperty, OptionColor, Property,
     PropertyKind, RelationProperty, SelectOption, SingleSelectProperty, TextProperty, UrlProperty,
 };
-pub use schema::{EntitySchema, SCHEMA_VERSION, Schema, empty_schema};
+pub use schema::{EntitySchema, SCHEMA_VERSION, Schema, default_schema, empty_schema};
 pub use store::{PatchableFields, SchemaStore, SchemaStoreError};

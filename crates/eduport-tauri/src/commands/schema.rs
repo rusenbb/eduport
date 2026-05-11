@@ -207,6 +207,7 @@ pub fn core_schema_apply_tier_template(
             name: "Tier".into(),
             description: Some("Reach / target / safety bucket".into()),
             required: false,
+            is_builtin: false,
             options: vec![
                 SelectOption {
                     value: "reach".into(),

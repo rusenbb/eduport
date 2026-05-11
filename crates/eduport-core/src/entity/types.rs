@@ -138,15 +138,21 @@ pub struct Program {
     pub level: Option<ProgramLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub department: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
+    /// One or more languages of instruction. Multi-select to handle
+    /// bilingual programs (e.g. English + German). Stored as
+    /// kebab-case option values (`english`, `german`) — see the
+    /// `language` built-in in [`crate::schema::builtins`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub language: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
     /// ISO date string `YYYY-MM-DD`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deadline: Option<String>,
+    /// Tuition amount as a number (currency is left to user
+    /// convention — eduport doesn't carry a currency type yet).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tuition: Option<String>,
+    pub tuition: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub website: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
