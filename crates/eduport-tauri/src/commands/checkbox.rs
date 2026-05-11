@@ -43,7 +43,10 @@ pub fn core_checkbox_toggle(
 ) -> Result<ToggleResult, CommandError> {
     let st = require_state(&state)?;
     let (path_str, kind_str): (String, String) = {
-        let index = st.index.lock().expect("index mutex poisoned");
+        let index = st
+            .index
+            .lock()
+            .map_err(|_| CommandError::internal("index mutex poisoned"))?;
         index
             .conn()
             .query_row(
@@ -66,7 +69,9 @@ pub fn core_checkbox_toggle(
 
     let new_raw = format!("---\n{frontmatter_block}\n---\n{new_body}");
 
-    if let Some(watcher) = st.watcher.lock().expect("watcher mutex poisoned").as_ref() {
+    if let Ok(guard) = st.watcher.lock()
+        && let Some(watcher) = guard.as_ref()
+    {
         watcher.note_self_write(&path);
     }
     // Atomic write via tempfile + rename. We don't pull in
@@ -89,7 +94,10 @@ pub fn core_checkbox_toggle(
         .map(|d| d.as_nanos() as i64)
         .unwrap_or(0);
     let schema = st.schema_store.current().ok();
-    let index = st.index.lock().expect("index mutex poisoned");
+    let index = st
+        .index
+        .lock()
+        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
     index_upsert(
         index.conn(),
         &body.file_id,

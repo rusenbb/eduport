@@ -29,7 +29,12 @@ pub enum ViewStoreError {
 
 impl From<ViewStoreError> for EduportError {
     fn from(e: ViewStoreError) -> Self {
-        EduportError::Schema(e.to_string())
+        match e {
+            ViewStoreError::NotFound(m) => EduportError::NotFound(m),
+            ViewStoreError::Conflict(m) => EduportError::Conflict(m),
+            ViewStoreError::Invalid(m) => EduportError::Invalid(m),
+            ViewStoreError::Eduport(e) => e,
+        }
     }
 }
 
@@ -55,14 +60,20 @@ impl ViewStore {
     }
 
     pub fn load(&self) -> Result<ViewsFile, EduportError> {
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         let v = self.load_locked()?;
         *guard = Some(v.clone());
         Ok(v)
     }
 
     pub fn current(&self) -> Result<ViewsFile, EduportError> {
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         if let Some(v) = &*guard {
             return Ok(v.clone());
         }
@@ -72,7 +83,10 @@ impl ViewStore {
     }
 
     pub fn reload(&self) -> Result<ViewsFile, EduportError> {
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         *guard = None;
         let v = self.load_locked()?;
         *guard = Some(v.clone());
@@ -85,7 +99,10 @@ impl ViewStore {
         view: View,
     ) -> Result<ViewsFile, ViewStoreError> {
         view.validate().map_err(ViewStoreError::Invalid)?;
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         let mut file = match &*guard {
             Some(f) => f.clone(),
             None => self.load_locked()?,
@@ -109,7 +126,10 @@ impl ViewStore {
         view: View,
     ) -> Result<ViewsFile, ViewStoreError> {
         view.validate().map_err(ViewStoreError::Invalid)?;
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         let mut file = match &*guard {
             Some(f) => f.clone(),
             None => self.load_locked()?,
@@ -133,7 +153,10 @@ impl ViewStore {
         entity_type: EntityType,
         view_id: &str,
     ) -> Result<ViewsFile, ViewStoreError> {
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         let mut file = match &*guard {
             Some(f) => f.clone(),
             None => self.load_locked()?,
@@ -159,7 +182,10 @@ impl ViewStore {
         entity_type: EntityType,
         ordered_ids: &[String],
     ) -> Result<ViewsFile, ViewStoreError> {
-        let mut guard = self.inner.lock().expect("ViewStore mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| EduportError::Poisoned("ViewStore"))?;
         let mut file = match &*guard {
             Some(f) => f.clone(),
             None => self.load_locked()?,
@@ -176,7 +202,11 @@ impl ViewStore {
         }
         let new_views: Vec<View> = ordered_ids
             .iter()
-            .map(|id| existing.remove(id).unwrap())
+            .map(|id| {
+                existing
+                    .remove(id)
+                    .expect("ordered_ids ⊆ existing — verified by the set-equality check above")
+            })
             .collect();
         tv.views = new_views;
         self.save_locked(&file)?;
