@@ -80,7 +80,7 @@
 		<span>{value === true ? 'Yes' : 'No'}</span>
 	</span>
 {:else if prop.type === 'url'}
-	<a class="text-sm text-[var(--color-accent)] underline hover:opacity-80" href={String(value)} target="_blank" rel="noreferrer">
+	<a class="break-all text-sm text-[var(--color-accent)] underline hover:opacity-80" href={String(value)} target="_blank" rel="noreferrer">
 		{String(value)}
 	</a>
 {:else if prop.type === 'single-select'}
