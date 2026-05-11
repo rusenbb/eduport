@@ -123,6 +123,7 @@ export const Wikilink = Node.create({
 						for (let i = 0; i < lastItems.length; i++) {
 							const it = lastItems[i];
 							const row = document.createElement('button');
+							row.dataset.wikiRow = String(i);
 							row.className = `flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-white/5 ${
 								i === selected ? 'bg-white/5' : ''
 							}`;
@@ -132,6 +133,10 @@ export const Wikilink = Node.create({
 							};
 							host.appendChild(row);
 						}
+						const target = host.querySelector(
+							`[data-wiki-row="${selected}"]`
+						) as HTMLElement | null;
+						target?.scrollIntoView({ block: 'nearest' });
 					}
 
 					function position(props: SuggestionProps) {
@@ -146,7 +151,7 @@ export const Wikilink = Node.create({
 						onStart: (props: SuggestionProps) => {
 							host = document.createElement('div');
 							host.className =
-								'fixed z-50 min-w-[220px] overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] shadow-xl';
+								'fixed z-50 min-w-[220px] max-h-[260px] overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-panel)] shadow-xl';
 							document.body.appendChild(host);
 							lastProps = props;
 							lastItems = (props.items as Array<{ target: string; type: string; file_id: string }>) ?? [];
