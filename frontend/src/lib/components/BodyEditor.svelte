@@ -52,7 +52,7 @@
 			editorProps: {
 				attributes: {
 					class:
-						'prose prose-invert max-w-none min-h-64 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4 text-sm focus:outline-none [&_.is-editor-empty:first-child::before]:text-[var(--color-muted)] [&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:pointer-events-none [&_.is-editor-empty:first-child::before]:h-0'
+						'min-h-64 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4 text-base focus:outline-none'
 				}
 			},
 			onUpdate: ({ editor: ed }) => {

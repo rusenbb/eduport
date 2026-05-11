@@ -134,7 +134,7 @@
 	}
 </script>
 
-<div bind:this={container} class="prose prose-invert max-w-none text-sm" role="document">
+<div bind:this={container} class="body-prose text-sm" role="document">
 	{#if rendered.checkboxes.length > 0}
 		<ul class="not-prose mb-4 list-none space-y-1 pl-0">
 			{#each rendered.checkboxes as cb}
