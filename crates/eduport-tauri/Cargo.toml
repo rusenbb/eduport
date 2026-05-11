@@ -44,3 +44,11 @@ tauri-plugin-fs = "2"
 # core_state / commands. Same crate eduport-core uses, so consumers
 # see one error idiom across the workspace.
 thiserror = "2"
+# tauri-specta drives TypeScript binding generation from the command
+# surface. Pinned to the 2.0.0-rc series (no stable 2.x yet) since
+# that's what Tauri 2.x consumers use. The bindings file is generated
+# in debug builds and committed to the frontend so production builds
+# don't depend on the export step.
+specta = { version = "2.0.0-rc.22", features = ["derive", "serde_json"] }
+specta-typescript = "0.0.9"
+tauri-specta = { version = "2.0.0-rc.21", features = ["derive", "typescript"] }

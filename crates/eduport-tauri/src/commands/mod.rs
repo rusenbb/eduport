@@ -41,9 +41,13 @@ use serde::Serialize;
 /// these stable across versions is part of the API contract — if
 /// you add a code, document it; if you remove one, that's a
 /// breaking change.
-#[derive(Debug, Serialize, thiserror::Error)]
+#[derive(Debug, Serialize, specta::Type, thiserror::Error)]
 #[error("{code}: {message}")]
 pub struct CommandError {
+    /// `#[specta(type = String)]` because the code is a `&'static str`
+    /// in Rust (zero-alloc constants) but serialises and types as
+    /// `string` over IPC.
+    #[specta(type = String)]
     pub code: &'static str,
     pub message: String,
 }

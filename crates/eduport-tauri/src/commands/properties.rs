@@ -25,7 +25,7 @@ use crate::core_state::EduportStateHandle;
 
 /// One entry in a property-value-count aggregation. Field-for-field
 /// compatible with the frontend's `PropertyCount`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct PropertyCount {
     #[serde(rename = "type")]
     pub property_type: String,
@@ -33,7 +33,7 @@ pub struct PropertyCount {
     pub count: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct PropertyCountsResponse {
     pub entity_type: EntityType,
     pub key: String,
@@ -44,7 +44,7 @@ pub struct PropertyCountsResponse {
 /// `frontend/src/lib/api/schema.ts:filterEntitiesByProperties`
 /// builds. Each map keys a property by name; ranges are
 /// `(low, high)` tuples with optional ends.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, specta::Type)]
 pub struct PropertyFiltersRequest {
     #[serde(default)]
     pub text: BTreeMap<String, String>,
@@ -72,6 +72,7 @@ pub struct PropertyFiltersRequest {
 /// pass over the resulting records. For a vault sized like this app
 /// targets (thousands of entities at most), that's noise.
 #[tauri::command]
+#[specta::specta]
 pub fn core_property_value_counts(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -121,6 +122,7 @@ pub fn core_property_value_counts(
 /// Filter entities of `entity_type` by the request's text / num /
 /// date predicates. Sort and limit handled by vaultdb's `Query`.
 #[tauri::command]
+#[specta::specta]
 pub fn core_filter_entities_by_properties(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,

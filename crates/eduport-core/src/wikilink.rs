@@ -16,7 +16,13 @@ fn wikilink_re() -> &'static regex::Regex {
 
 /// `[[target]]` reference. Wraps a filename stem (no `.md`, no
 /// brackets). Equality is by `target`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+///
+/// `#[specta(transparent)]` tells the TS-binding generator to render
+/// this as a plain `string` — matching the wire format
+/// (`"[[target]]"`) and aligning with how the frontend already
+/// handles wikilink values throughout the codebase.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, specta::Type)]
+#[specta(transparent)]
 pub struct WikiLink {
     pub target: String,
 }

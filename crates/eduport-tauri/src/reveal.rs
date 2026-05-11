@@ -4,6 +4,7 @@ use std::process::Command;
 /// Reveal `path` in the OS file manager (Finder/Explorer/Files), with the file
 /// selected when the platform supports it.
 #[tauri::command]
+#[specta::specta]
 pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -61,6 +62,7 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -87,6 +89,7 @@ pub fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn copy_file(source_path: String, destination_path: String) -> Result<(), String> {
     fs::copy(source_path, destination_path)
         .map(|_| ())
@@ -94,6 +97,7 @@ pub fn copy_file(source_path: String, destination_path: String) -> Result<(), St
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|e| format!("failed to read file: {e}"))
 }

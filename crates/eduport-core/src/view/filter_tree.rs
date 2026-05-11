@@ -33,7 +33,7 @@ use vaultdb_core::{CompareOp, Expr, Predicate, Value};
 
 /// Top-level filter shape. `None` = no filter (matches everything
 /// after the type-tag pin).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct FilterTree {
     pub root: Option<FilterNode>,
@@ -42,28 +42,28 @@ pub struct FilterTree {
 /// Either a group (combinator + children) or a leaf condition. The
 /// recursive shape supports arbitrary nesting; the Phase-B UI only
 /// produces single-group trees.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum FilterNode {
     Group(FilterGroup),
     Cond(FilterCondition),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Combinator {
     And,
     Or,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct FilterGroup {
     pub op: Combinator,
     pub children: Vec<FilterNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct FilterCondition {
     pub property_key: String,
@@ -78,7 +78,7 @@ pub struct FilterCondition {
 /// enforces that, and an invalid combo produced by hand-edited YAML
 /// is silently ignored by the translator (the predicate just won't
 /// match anything).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterOperator {
     // Common
@@ -106,7 +106,7 @@ pub enum FilterOperator {
 
 /// Side-channel typed value. Mirrors the operator-vs-value contract
 /// in vaultdb's `Predicate::*` shapes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(untagged)]
 pub enum FilterValue {
     Text(String),

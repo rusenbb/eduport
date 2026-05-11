@@ -21,7 +21,7 @@ use crate::core_state::EduportStateHandle;
 
 const TRASH_DIR_NAME: &str = ".trash";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct TrashItem {
     pub name: String,
     pub path: String,
@@ -30,12 +30,12 @@ pub struct TrashItem {
     pub modified: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 pub struct RestoreBody {
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct RestoreResult {
     pub path: String,
     pub file_id: String,
@@ -46,6 +46,7 @@ pub struct RestoreResult {
 /// that's missing or unparseable, we fall back to `None` rather
 /// than failing the whole listing.
 #[tauri::command]
+#[specta::specta]
 pub fn core_trash_list(
     state: State<'_, EduportStateHandle>,
 ) -> Result<Vec<TrashItem>, CommandError> {
@@ -84,6 +85,7 @@ pub fn core_trash_list(
 /// Restore a single file from the trash by inferring its original
 /// folder from the file's entity-type discriminator.
 #[tauri::command]
+#[specta::specta]
 pub fn core_trash_restore(
     state: State<'_, EduportStateHandle>,
     body: RestoreBody,
@@ -118,6 +120,7 @@ pub fn core_trash_restore(
 
 /// Permanently delete a single trashed file.
 #[tauri::command]
+#[specta::specta]
 pub fn core_trash_delete(
     state: State<'_, EduportStateHandle>,
     name: String,
@@ -136,6 +139,7 @@ pub fn core_trash_delete(
 
 /// Permanently empty the trash directory.
 #[tauri::command]
+#[specta::specta]
 pub fn core_trash_empty(state: State<'_, EduportStateHandle>) -> Result<(), CommandError> {
     let st = require_state(&state)?;
     let dir = st.data_folder.join(TRASH_DIR_NAME);

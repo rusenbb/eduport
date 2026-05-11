@@ -16,7 +16,7 @@ use crate::EduportError;
 /// `vaultdb-core::Vault::root` once eduport-core wires up the data
 /// layer). Sub-folders for `attachments_folder` and `notes_folder` are
 /// resolved relative to it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub data_folder: PathBuf,
@@ -35,7 +35,7 @@ pub struct Settings {
     pub confirm_deletes: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
     #[default]

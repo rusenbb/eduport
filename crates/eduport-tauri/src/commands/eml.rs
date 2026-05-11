@@ -13,7 +13,7 @@ use tauri::State;
 use super::{require_state, CommandError};
 use crate::core_state::EduportStateHandle;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ParsedEmlDto {
     pub from: String,
     pub to: Vec<String>,
@@ -23,7 +23,9 @@ pub struct ParsedEmlDto {
     pub date: Option<String>,
     pub body: String,
     /// `"inbound"` or `"outbound"`, matching the frontend's
-    /// `ParsedEml.direction`.
+    /// `ParsedEml.direction`. Stored as `&'static str` for zero-alloc;
+    /// surfaces as `string` over IPC.
+    #[specta(type = String)]
     pub direction: &'static str,
 }
 
@@ -53,6 +55,7 @@ impl From<ParsedEml> for ParsedEmlDto {
 /// settings) — not from a per-call argument, so the frontend can't
 /// accidentally flip direction.
 #[tauri::command]
+#[specta::specta]
 pub fn core_parse_eml(
     state: State<'_, EduportStateHandle>,
     bytes: Vec<u8>,

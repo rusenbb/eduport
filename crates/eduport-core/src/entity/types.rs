@@ -20,7 +20,7 @@ pub const EDUPORT_TYPE_PREFIX: &str = "eduport-type/";
 
 /// Fields every entity carries. `name` is required; `tags` must
 /// include exactly one `eduport-type/<value>` discriminator.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct BaseEntityFields {
     pub name: String,
     #[serde(default)]
@@ -124,7 +124,7 @@ pub struct Person {
 
 // ─── Program ─────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ProgramLevel {
     Undergrad,
@@ -173,7 +173,7 @@ pub struct Program {
 
 // ─── Application ─────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum ApplicationStatus {
     #[default]
@@ -209,7 +209,7 @@ pub struct Application {
 
 // ─── Document ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum DocumentStatus {
     Requested,
@@ -257,7 +257,7 @@ impl Document {
 
 // ─── Email ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum EmailDirection {
     Inbound,

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::wikilink::WikiLink;
 
 /// A labelled URL — appears on University, Lab, Program, Person.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct LinkResource {
     pub label: String,
@@ -15,7 +15,7 @@ pub struct LinkResource {
 
 /// A labelled email address with an optional `Person` wikilink that
 /// owns it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct EmailResource {
     pub label: String,

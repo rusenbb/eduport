@@ -37,7 +37,7 @@ impl From<SchemaStoreError> for CommandError {
 
 /// Patch shape sent by the frontend's `patchProperty`. We accept
 /// every known field; absent fields mean "leave alone".
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, specta::Type)]
 pub struct PropertyPatch {
     pub name: Option<String>,
     /// Wrapped option so we can express both "leave alone" (None)
@@ -71,24 +71,24 @@ where
     Option::<Vec<T>>::deserialize(deserialiser).map(Some)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct TierTemplateResult {
     pub results: std::collections::BTreeMap<String, TierStatus>,
     pub schema: Schema,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct TierStatus {
     pub status: &'static str,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct PurgeOrphansResult {
     pub rewritten: usize,
     pub skipped: Vec<PurgeSkip>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct PurgeSkip {
     pub file_id: String,
     pub reason: String,
@@ -96,6 +96,7 @@ pub struct PurgeSkip {
 
 /// Return the full schema (all eight types + their properties).
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_get(state: State<'_, EduportStateHandle>) -> Result<Schema, CommandError> {
     let st = require_state(&state)?;
     Ok(st.schema_store.current()?)
@@ -103,6 +104,7 @@ pub fn core_schema_get(state: State<'_, EduportStateHandle>) -> Result<Schema, C
 
 /// Return one entity-type's portion of the schema.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_get_type(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -115,6 +117,7 @@ pub fn core_schema_get_type(
 /// Add a property to `entity_type`. Triggers a property reindex so
 /// the SQL filter surface picks up the new key on existing entities.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_add_property(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -130,6 +133,7 @@ pub fn core_schema_add_property(
 /// and `type` are immutable post-creation — see
 /// `SchemaStore::patch_property` for the full rule set.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_patch_property(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -156,6 +160,7 @@ pub fn core_schema_patch_property(
 /// drops them (so they no longer appear in filter aggregations) but
 /// the YAML keeps them until the user runs `purge_orphans`.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_delete_property(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -171,6 +176,7 @@ pub fn core_schema_delete_property(
 /// the call errors with `invalid` so the frontend can re-fetch and
 /// reconcile UI state.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_reorder_properties(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -188,6 +194,7 @@ pub fn core_schema_reorder_properties(
 /// `tier` property are reported with status `exists` rather than
 /// erroring.
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_apply_tier_template(
     state: State<'_, EduportStateHandle>,
     types: Vec<EntityType>,
@@ -238,6 +245,7 @@ pub fn core_schema_apply_tier_template(
 /// is the only safe behaviour — otherwise we'd be silently deleting
 /// live values).
 #[tauri::command]
+#[specta::specta]
 pub fn core_schema_purge_orphans(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
