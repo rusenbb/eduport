@@ -3,6 +3,7 @@
 	import type { EntityListItem, EntityType } from '$lib/types';
 	import { ENTITY_TYPES } from '$lib/types';
 	import { COLOR_CLASSES, type Property, type SelectOption } from '$lib/types/schema';
+	import { FIELD_DEFS } from '$lib/entities/meta';
 	import { onMount } from 'svelte';
 
 	let {
@@ -57,10 +58,38 @@
 	);
 
 	function pickRelation(item: EntityListItem) {
-		set(`[[${item.file_id}]]`);
+		const link = `[[${item.file_id}]]`;
+		if (isMultiRelation) {
+			const arr = Array.isArray(value) ? [...(value as string[])] : [];
+			if (!arr.includes(link)) arr.push(link);
+			set(arr);
+		} else {
+			set(link);
+		}
 		relationQuery = '';
 		relationOpen = false;
 	}
+
+	function removeRelationAt(i: number) {
+		if (!Array.isArray(value)) return;
+		const arr = (value as string[]).slice();
+		arr.splice(i, 1);
+		set(arr);
+	}
+
+	// Detect plural-relation built-ins (`labs`, `documents`, `people`,
+	// `attachments`, `related_people`) by looking up the FIELD_DEFS
+	// kind. Schema today only has `relation` (singular); the plurality
+	// of built-ins is recorded in FIELD_DEFS as `wikilinks`.
+	const isMultiRelation = (() => {
+		if (prop.type !== 'relation') return false;
+		for (const defs of Object.values(FIELD_DEFS)) {
+			const def = defs.find((d) => d.key === prop.key);
+			if (def) return def.kind === 'wikilinks';
+		}
+		// Unknown key (custom property) — fall back to value shape.
+		return Array.isArray(value);
+	})();
 
 	const currentRelationLabel = $derived(
 		(() => {
@@ -166,15 +195,29 @@
 	</div>
 {:else if prop.type === 'relation'}
 	<div class="relative">
+		{#if isMultiRelation && Array.isArray(value) && value.length > 0}
+			<div class="mb-1 flex flex-wrap gap-1.5">
+				{#each value as link, i}
+					<span class="inline-flex items-center gap-1 rounded border border-[var(--color-border)] bg-white/5 px-2 py-0.5 text-xs">
+						{relationItems.find((it) => `[[${it.file_id}]]` === link)?.name ?? targetOf(String(link)) ?? String(link)}
+						<button
+							type="button"
+							class="text-[var(--color-muted)] hover:text-[var(--color-bad)]"
+							onclick={() => removeRelationAt(i)}
+							aria-label="Remove relation">×</button>
+					</span>
+				{/each}
+			</div>
+		{/if}
 		<div class="flex gap-2">
 			<input
 				value={relationQuery}
 				oninput={(e) => (relationQuery = (e.currentTarget as HTMLInputElement).value)}
 				onfocus={() => (relationOpen = true)}
-				placeholder={currentRelationLabel ?? 'Search...'}
+				placeholder={isMultiRelation ? 'Add…' : (currentRelationLabel ?? 'Search...')}
 				class="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
 			/>
-			{#if value}
+			{#if !isMultiRelation && value}
 				<button
 					type="button"
 					class="rounded border border-[var(--color-border)] px-2 text-xs hover:bg-white/5"
@@ -184,7 +227,7 @@
 				</button>
 			{/if}
 		</div>
-		{#if currentRelationLabel && !relationQuery}
+		{#if !isMultiRelation && currentRelationLabel && !relationQuery}
 			<div class="mt-1 text-xs text-[var(--color-muted)]">{targetOf(String(value))}</div>
 		{/if}
 		{#if relationOpen && filteredRelationItems.length > 0}
