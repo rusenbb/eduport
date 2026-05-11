@@ -71,6 +71,62 @@
 		}
 	}
 
+	// Right-click context menu on a tag chip. Same fixed-position
+	// pattern used by the entity row and three-dot menus.
+	let tagCtxMenu: { x: number; y: number; tag: string } | null = $state(null);
+
+	function openTagContextMenu(event: MouseEvent, tag: string) {
+		event.preventDefault();
+		const x = Math.min(event.clientX, window.innerWidth - 220);
+		const y = Math.min(event.clientY, window.innerHeight - 140);
+		tagCtxMenu = { x, y, tag };
+	}
+
+	$effect(() => {
+		if (!tagCtxMenu) return;
+		function close() {
+			tagCtxMenu = null;
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') close();
+		}
+		const id = window.setTimeout(() => {
+			window.addEventListener('click', close);
+		}, 0);
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('scroll', close, true);
+		return () => {
+			window.clearTimeout(id);
+			window.removeEventListener('click', close);
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('scroll', close, true);
+		};
+	});
+
+	function tagFilterOnlyThis() {
+		if (!tagCtxMenu) return;
+		const t = tagCtxMenu.tag;
+		tagCtxMenu = null;
+		filters.set({ tags: [t] });
+	}
+
+	function tagRemove() {
+		if (!tagCtxMenu) return;
+		filters.removeTag(tagCtxMenu.tag);
+		tagCtxMenu = null;
+	}
+
+	async function tagCopyName() {
+		if (!tagCtxMenu) return;
+		const t = tagCtxMenu.tag;
+		tagCtxMenu = null;
+		try {
+			await navigator.clipboard.writeText(t);
+		} catch {
+			/* best-effort */
+		}
+	}
+
 	onMount(() => {
 		void refreshMeta();
 		void schemaStore.load();
@@ -280,6 +336,7 @@
 						class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[var(--color-text)] hover:bg-white/5"
 						class:active={$filters.tags.includes(item.tag)}
 						onclick={() => filters.toggleTag(item.tag)}
+						oncontextmenu={(e) => openTagContextMenu(e, item.tag)}
 					>
 						<span class="min-w-0 flex-1 truncate">#{item.tag}</span>
 						<span class="flex-shrink-0 text-[10px] text-[var(--color-muted)]">{item.count}</span>
@@ -307,6 +364,27 @@
 		</a>
 	</div>
 </aside>
+
+{#if tagCtxMenu}
+	<div
+		role="menu"
+		class="fixed z-50 w-56 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-xs shadow-xl"
+		style="top: {tagCtxMenu.y}px; left: {tagCtxMenu.x}px"
+	>
+		<div class="border-b border-[var(--color-border)] px-3 py-1.5 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+			#{tagCtxMenu.tag}
+		</div>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={tagFilterOnlyThis}>
+			Filter only this tag
+		</button>
+		<button class="block w-full px-3 py-2 text-left hover:bg-white/5" onclick={tagRemove}>
+			Remove from active filters
+		</button>
+		<button class="block w-full border-t border-[var(--color-border)] px-3 py-2 text-left hover:bg-white/5" onclick={tagCopyName}>
+			Copy tag name
+		</button>
+	</div>
+{/if}
 
 <style>
 	.active {

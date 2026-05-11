@@ -12,13 +12,15 @@
 		items,
 		details = {},
 		groupBy,
-		selectedFileId
+		selectedFileId,
+		onContextMenu
 	}: {
 		entityType: EntityType;
 		items: EntityListItem[];
 		details?: Record<string, EntityDetail | null>;
 		groupBy: SingleSelectProperty | null;
 		selectedFileId?: string;
+		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
 	} = $props();
 
 	const buckets = $derived.by(() => {
@@ -59,7 +61,7 @@
 </script>
 
 {#if !buckets}
-	<EntityList {items} type={entityType} {selectedFileId} {details} />
+	<EntityList {items} type={entityType} {selectedFileId} {details} {onContextMenu} />
 {:else}
 	<div>
 		{#each buckets as group (group.value)}

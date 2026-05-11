@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { createEntity, updateEntity } from '$lib/api/entities';
+	import { toasts } from '$lib/stores/toasts';
 	import { FIELD_DEFS, TYPE_LABELS, typeTag, userTags, type FieldDef } from '$lib/entities/meta';
 	import type { EntityType } from '$lib/types';
 	import BodyEditor from './BodyEditor.svelte';
@@ -127,6 +128,7 @@
 		saving = true;
 		try {
 			let resultId: string;
+			const wasUpdate = !!fileId;
 			if (fileId) {
 				const r = await updateEntity(type, fileId, frontmatter, body);
 				resultId = r.file_id;
@@ -136,13 +138,34 @@
 			}
 			onDone?.(resultId);
 			goto(`/${type}/${resultId}`);
+			const displayName = String(frontmatter.name ?? resultId);
+			toasts.success(
+				wasUpdate ? `Saved "${displayName}"` : `Created ${TYPE_LABELS[type].toLowerCase()} "${displayName}"`
+			);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			saving = false;
 		}
 	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onCancel?.();
+			return;
+		}
+		if (
+			(event.metaKey || event.ctrlKey) &&
+			(event.key === 'Enter' || event.key.toLowerCase() === 's')
+		) {
+			event.preventDefault();
+			if (!saving) void save();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 	<div class="flex w-[760px] max-w-[94vw] max-h-[92vh] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl">
@@ -238,7 +261,7 @@
 				Cancel
 			</button>
 			<button
-				class="rounded border border-blue-700 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+				class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-50"
 				disabled={!name.trim() || saving}
 				onclick={save}
 			>

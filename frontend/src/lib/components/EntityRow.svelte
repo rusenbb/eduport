@@ -6,13 +6,15 @@
 		type,
 		selected = false,
 		summary = '',
-		onclick
+		onclick,
+		onContextMenu
 	}: {
 		item: EntityListItem;
 		type: EntityType;
 		selected?: boolean;
 		summary?: string;
 		onclick?: () => void;
+		onContextMenu?: (event: MouseEvent, item: EntityListItem) => void;
 	} = $props();
 </script>
 
@@ -20,6 +22,12 @@
 	class="grid w-full grid-cols-[1fr_auto] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left text-sm text-[var(--color-text)] hover:bg-white/[0.025]"
 	class:selected
 	{onclick}
+	oncontextmenu={(e) => {
+		if (onContextMenu) {
+			e.preventDefault();
+			onContextMenu(e, item);
+		}
+	}}
 >
 	<div class="min-w-0">
 		<div class="truncate font-medium">{item.name}</div>

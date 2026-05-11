@@ -86,7 +86,23 @@
 			saving = false;
 		}
 	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onCancel();
+			return;
+		}
+		// Cmd/Ctrl+Enter — submit even when focus is on a plain input
+		// (Enter alone is intercepted by the input itself).
+		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+			event.preventDefault();
+			if (!saving && name.trim()) void save();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-6" role="dialog" aria-modal="true">
 	<div class="flex w-[min(420px,92vw)] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl">
@@ -127,7 +143,7 @@
 				Cancel
 			</button>
 			<button
-				class="rounded border border-blue-700 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+				class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-50"
 				disabled={saving || !name.trim()}
 				onclick={save}
 			>

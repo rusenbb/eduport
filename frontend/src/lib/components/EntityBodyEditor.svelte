@@ -36,7 +36,25 @@
 			saving = false;
 		}
 	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onCancel?.();
+			return;
+		}
+		// Both ⌘/Ctrl+Enter and ⌘/Ctrl+S — muscle memory varies.
+		if (
+			(event.metaKey || event.ctrlKey) &&
+			(event.key === 'Enter' || event.key.toLowerCase() === 's')
+		) {
+			event.preventDefault();
+			if (!saving) void save();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 	<div class="flex h-[82vh] w-[820px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl">
@@ -57,7 +75,7 @@
 				Cancel
 			</button>
 			<button
-				class="rounded border border-blue-700 bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+				class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-50"
 				disabled={saving}
 				onclick={save}
 			>

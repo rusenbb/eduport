@@ -164,7 +164,7 @@
 
 	<footer class="flex items-center gap-3">
 		<button
-			class="rounded border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+			class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-4 py-2 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-50"
 			disabled={saving || !draft.data_folder.trim() || !draft.user_email.trim()}
 			onclick={save}
 		>

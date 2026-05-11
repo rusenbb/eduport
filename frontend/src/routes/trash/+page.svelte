@@ -2,6 +2,7 @@
 	import { deleteTrashItem, emptyTrash, listTrash, restoreTrashItem } from '$lib/api/trash';
 	import { settings } from '$lib/stores/settings';
 	import { confirmDestructive } from '$lib/tauri';
+	import { toasts } from '$lib/stores/toasts';
 	import type { TrashItem } from '$lib/types';
 
 	let items: TrashItem[] = $state([]);
@@ -21,20 +22,36 @@
 	}
 
 	async function restore(name: string) {
-		await restoreTrashItem(name);
-		await load();
+		try {
+			await restoreTrashItem(name);
+			await load();
+			toasts.success(`Restored "${name}"`);
+		} catch (e) {
+			toasts.error('Restore failed', e instanceof Error ? e.message : String(e));
+		}
 	}
 
 	async function remove(name: string) {
-		if (!(await confirmDestructive(`Permanently delete ${name}?`))) return;
-		await deleteTrashItem(name);
-		await load();
+		if (!(await confirmDestructive(`Permanently delete ${name}? This cannot be undone.`))) return;
+		try {
+			await deleteTrashItem(name);
+			await load();
+			toasts.success(`Deleted "${name}" permanently`);
+		} catch (e) {
+			toasts.error('Permanent delete failed', e instanceof Error ? e.message : String(e));
+		}
 	}
 
 	async function clear() {
-		if (!(await confirmDestructive('Permanently empty trash?'))) return;
-		await emptyTrash();
-		await load();
+		if (!(await confirmDestructive(`Permanently empty trash? ${items.length} item${items.length === 1 ? '' : 's'} will be lost forever.`))) return;
+		try {
+			const n = items.length;
+			await emptyTrash();
+			await load();
+			toasts.success(`Emptied trash`, `${n} item${n === 1 ? '' : 's'} permanently deleted`);
+		} catch (e) {
+			toasts.error('Empty trash failed', e instanceof Error ? e.message : String(e));
+		}
 	}
 
 	$effect(() => {
@@ -48,7 +65,8 @@
 			<h1 class="text-2xl font-semibold">Trash</h1>
 			{#if $settings}
 				<p class="mt-1 text-xs text-[var(--color-muted)]">
-					Path: <code>{$settings.data_folder}/.eduport-trash/</code>
+					{items.length === 0 ? 'Empty' : `${items.length} item${items.length === 1 ? '' : 's'}`}
+					· <code>{$settings.data_folder}/.eduport-trash/</code>
 				</p>
 			{/if}
 		</div>

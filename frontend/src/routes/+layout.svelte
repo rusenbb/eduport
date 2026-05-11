@@ -6,16 +6,42 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import EntityForm from '$lib/components/EntityForm.svelte';
 	import FirstRunPrompt from '$lib/components/FirstRunPrompt.svelte';
+	import ToastHost from '$lib/components/ToastHost.svelte';
+	import ShortcutsHelp from '$lib/components/ShortcutsHelp.svelte';
+	import { toasts } from '$lib/stores/toasts';
 	import { parseEml } from '$lib/api/eml';
 	import { settings } from '$lib/stores/settings';
 	import { status } from '$lib/stores/status';
 	import { isTauri, readFileBytes } from '$lib/tauri';
+	import { isTypingTarget } from '$lib/keyboard';
 	import { onMount, setContext } from 'svelte';
-	import { writable } from 'svelte/store';
+	import { get, writable } from 'svelte/store';
 
 	let { data, children } = $props();
 
 	let paletteOpen = $state(false);
+	let helpOpen = $state(false);
+	// Sidebar collapse state — persisted across reloads via
+	// localStorage so the user's pick survives a refresh.
+	let sidebarCollapsed = $state(false);
+	if (typeof window !== 'undefined') {
+		try {
+			sidebarCollapsed = window.localStorage.getItem('eduport:sidebar-collapsed') === '1';
+		} catch {
+			/* private mode etc. */
+		}
+	}
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(
+				'eduport:sidebar-collapsed',
+				sidebarCollapsed ? '1' : '0'
+			);
+		} catch {
+			/* ignore */
+		}
+	});
 	let droppedEmail:
 		| {
 				frontmatter: Record<string, unknown>;
@@ -31,9 +57,48 @@
 	}
 
 	function onKey(event: KeyboardEvent) {
+		// Cmd/Ctrl+K — search palette. Works even while typing so the
+		// user can pivot from any input.
 		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
 			event.preventDefault();
 			openPalette();
+			return;
+		}
+		// Below shortcuts must not fire while the user is typing in a
+		// field — otherwise pressing N in a text input would trigger
+		// "new entity".
+		if (isTypingTarget(event.target)) return;
+
+		// ? — shortcut help (Shift+/ on US layouts; the browser
+		// resolves the keysym for us).
+		if (event.key === '?' && !event.metaKey && !event.ctrlKey) {
+			event.preventDefault();
+			helpOpen = true;
+			return;
+		}
+		// Cmd/Ctrl+N — trigger the workspace's "new" action when one
+		// is registered.
+		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+			const action = get(newAction);
+			if (action) {
+				event.preventDefault();
+				action.onClick();
+			}
+			return;
+		}
+		// Cmd/Ctrl+, — jump to settings (familiar convention from
+		// most macOS apps, useful enough to alias on Linux too).
+		if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+			event.preventDefault();
+			void import('$app/navigation').then(({ goto }) => goto('/settings'));
+			return;
+		}
+		// Cmd/Ctrl+\ — toggle sidebar. Useful at narrow widths or
+		// when the user wants more horizontal room for the workspace.
+		if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
+			event.preventDefault();
+			sidebarCollapsed = !sidebarCollapsed;
+			return;
 		}
 	}
 
@@ -65,7 +130,10 @@
 							body: parsed.body
 						};
 					} catch (e) {
-						alert(`Email import failed: ${e instanceof Error ? e.message : String(e)}`);
+						toasts.error(
+							'Email import failed',
+							e instanceof Error ? e.message : String(e)
+						);
 					}
 				});
 			});
@@ -99,9 +167,17 @@
 	</div>
 {:else}
 	<div class="flex h-screen w-screen overflow-hidden">
-		<Sidebar />
+		{#if !sidebarCollapsed}
+			<Sidebar />
+		{/if}
 		<div class="flex flex-1 flex-col overflow-hidden">
-			<TopBar onSearch={openPalette} newAction={$newAction ?? undefined} />
+			<TopBar
+				onSearch={openPalette}
+				onHelp={() => (helpOpen = true)}
+				onToggleSidebar={() => (sidebarCollapsed = !sidebarCollapsed)}
+				sidebarCollapsed={sidebarCollapsed}
+				newAction={$newAction ?? undefined}
+			/>
 			<FilterChips />
 			<div class="flex-1 overflow-auto">
 				{@render children()}
@@ -118,4 +194,6 @@
 			onDone={() => (droppedEmail = null)}
 		/>
 	{/if}
+	<ToastHost />
+	<ShortcutsHelp bind:open={helpOpen} />
 {/if}

@@ -3,6 +3,7 @@
 	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
 	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
+	import { toasts } from '$lib/stores/toasts';
 	import { cloneFileToFolder, openInObsidian, openPath, revealInFileManager, saveCopyAs } from '$lib/tauri';
 	import type { EntityDetail } from '$lib/types';
 	import { onMount } from 'svelte';
@@ -113,7 +114,7 @@
 		try {
 			await revealInFileManager(abs);
 		} catch (e) {
-			alert(`Reveal failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Reveal failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -124,7 +125,7 @@
 		try {
 			await revealInFileManager(path);
 		} catch (e) {
-			alert(`Reveal failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Reveal failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -135,7 +136,7 @@
 		try {
 			await cloneFileToFolder(path, entityFilename());
 		} catch (e) {
-			alert(`Clone failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Clone failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -150,7 +151,7 @@
 		try {
 			await openPath(abs);
 		} catch (e) {
-			alert(`Open failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Open failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -160,7 +161,7 @@
 		try {
 			await saveCopyAs(abs, filePath?.split('/').pop() ?? 'attachment');
 		} catch (e) {
-			alert(`Save copy failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Save copy failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -223,7 +224,7 @@
 			detail.entity = fresh.entity;
 			detail.value_warnings = fresh.value_warnings;
 		} catch (e) {
-			alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+			toasts.error('Save failed', e instanceof Error ? e.message : String(e));
 		}
 	}
 
@@ -414,7 +415,7 @@
 						<div class="flex flex-shrink-0 gap-1 text-[10px]">
 							{#if editingKey === prop.key}
 								<button
-									class="rounded border border-blue-700 bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
+									class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
 									onclick={commitEdit}
 								>
 									Save
@@ -496,6 +497,15 @@
 	{#if localBody.trim().length > 0}
 		<div class="border-t border-[var(--color-border)] px-4 py-3">
 			<BodyView body={localBody} fileId={detail.file_id} onChange={(newBody) => (localBody = newBody)} />
+		</div>
+	{:else}
+		<div class="border-t border-[var(--color-border)] px-4 py-3 text-xs text-[var(--color-muted)]">
+			No body yet.
+			<button class="ml-1 underline hover:text-[var(--color-text)]" onclick={onEditBody}>
+				Add one
+			</button>
+			or press
+			<kbd class="rounded border border-[var(--color-border)] px-1">⇧E</kbd>.
 		</div>
 	{/if}
 

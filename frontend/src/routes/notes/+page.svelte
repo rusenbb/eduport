@@ -1,6 +1,6 @@
 <script lang="ts">
-	// Notes are entities of type 'note' under the same /entities/note route on the
-	// sidecar. Redirect to the generic list page.
+	// Notes are entities of type 'note' under the generic /[type] route.
+	// Keep `/notes` as a friendly alias and redirect to the canonical path.
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
