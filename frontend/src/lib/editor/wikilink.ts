@@ -9,6 +9,7 @@
  *     storage hook
  */
 import { Node, mergeAttributes } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion, { type SuggestionProps } from '@tiptap/suggestion';
 import { allEntities } from './all-entities';
 
@@ -16,7 +17,7 @@ export interface WikilinkAttrs {
 	target: string;
 }
 
-export const WikilinkPluginKey = 'wikilink-suggestion';
+export const WikilinkPluginKey = new PluginKey('eduportWikilink');
 
 export const Wikilink = Node.create({
 	name: 'wikilink',
@@ -77,7 +78,7 @@ export const Wikilink = Node.create({
 			Suggestion({
 				editor: this.editor,
 				char: '[[',
-				pluginKey: { key: WikilinkPluginKey } as never,
+				pluginKey: WikilinkPluginKey,
 				command: ({ editor, range, props }) => {
 					editor
 						.chain()

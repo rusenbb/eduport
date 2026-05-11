@@ -7,7 +7,10 @@
  * work in a future generic-Notion product.
  */
 import { Extension, type Editor, type Range } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion, { type SuggestionProps } from '@tiptap/suggestion';
+
+const SlashMenuPluginKey = new PluginKey('eduportSlashMenu');
 
 interface SlashItem {
 	label: string;
@@ -85,7 +88,7 @@ export const SlashMenu = Extension.create({
 				editor: this.editor,
 				char: '/',
 				startOfLine: false,
-				pluginKey: { key: 'slash-menu' } as never,
+				pluginKey: SlashMenuPluginKey,
 				command: ({ editor, range, props }) => {
 					const item = props as SlashItem;
 					item.run(editor, range);
