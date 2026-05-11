@@ -5,7 +5,7 @@ import type { EntityListItem } from '../../src/lib/types';
 
 const item = (id: string): EntityListItem => ({
 	file_id: id,
-	entity_type: 'university',
+	type: 'university',
 	name: id,
 	path: `${id}.md`,
 	mtime_ns: 0
