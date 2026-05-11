@@ -33,37 +33,35 @@ pub struct ToggleResult {
 }
 
 /// Toggle a single checkbox line. The frontend sends the 1-based
-/// line number it observed; we look up the file via the index
-/// (which has a `path` column for every entity), rewrite the body
-/// in place, and refresh the index synchronously.
+/// line number it observed; we look up the file via vaultdb (which
+/// is the canonical record source — the previous `SELECT path, type
+/// FROM entities` SQL queried a column that was dropped when storage
+/// moved to the shared vaultdb-fts crate, so the lookup silently
+/// returned not_found for every toggle), rewrite the body in place,
+/// and refresh the index synchronously.
 #[tauri::command]
 pub fn core_checkbox_toggle(
     state: State<'_, EduportStateHandle>,
     body: CheckboxToggleBody,
 ) -> Result<ToggleResult, CommandError> {
     let st = require_state(&state)?;
-    let (path_str, kind_str): (String, String) = {
-        let index = st
-            .index
-            .lock()
-            .map_err(|_| CommandError::internal("index mutex poisoned"))?;
-        index
-            .conn()
-            .query_row(
-                "SELECT path, type FROM entities WHERE file_id = ?1",
-                [&body.file_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(|_| CommandError::not_found(format!("no entity {:?}", body.file_id)))?
-    };
-    let kind: eduport_core::EntityType = kind_str
-        .parse()
-        .map_err(|e: String| CommandError::internal(format!("unknown entity type: {e}")))?;
-    let path = std::path::PathBuf::from(path_str);
+    let vault = st.entity_store.vault();
+    let record = vault
+        .find_by_name("", &body.file_id)
+        .map_err(|e| CommandError::internal(format!("vault lookup failed: {e}")))?
+        .ok_or_else(|| CommandError::not_found(format!("no entity {:?}", body.file_id)))?;
+    let kind = eduport_core::entity::record_eduport_type(&record).ok_or_else(|| {
+        CommandError::invalid(format!(
+            "file {:?} has no eduport-type/<value> tag",
+            body.file_id
+        ))
+    })?;
+    let path = record.path.clone();
 
     let raw = std::fs::read_to_string(&path)?;
-    let (frontmatter_block, body_text) = split_with_frontmatter(&raw)
+    let (frontmatter_block, body_start) = vaultdb_core::frontmatter::extract_frontmatter(&raw)
         .ok_or_else(|| CommandError::invalid("file lacks `---` frontmatter delimiters"))?;
+    let body_text = &raw[body_start..];
 
     let new_body = toggle_body_line(body_text, body.line, body.checked)?;
 
@@ -109,15 +107,6 @@ pub fn core_checkbox_toggle(
     )?;
 
     Ok(ToggleResult { ok: true })
-}
-
-/// Split a markdown file into `(yaml_block, body)`. Returns `None`
-/// if the leading `---\n` delimiter or its closing `\n---\n` is
-/// missing.
-fn split_with_frontmatter(raw: &str) -> Option<(&str, &str)> {
-    let trimmed = raw.strip_prefix("---\n")?;
-    let close = trimmed.find("\n---\n")?;
-    Some((&trimmed[..close], &trimmed[close + "\n---\n".len()..]))
 }
 
 /// Flip the checkbox marker on the given 1-based line number. Errors

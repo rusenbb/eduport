@@ -159,6 +159,16 @@ fn handle_watcher_event(
         clear_parse_error, delete_entity as index_delete, record_parse_error, upsert_entity,
     };
 
+    // Poison policy inside the watcher callback: accept the guard via
+    // `into_inner()` and keep the watcher thread alive. The FTS index
+    // is rebuildable from disk via `NeedsRescan`, so any incremental
+    // damage from acting on a suspect cache is bounded. Letting this
+    // closure panic would kill the watcher thread entirely — much
+    // worse than a possibly-stale cache row.
+    fn recover<T>(r: std::sync::LockResult<T>) -> T {
+        r.unwrap_or_else(|p| p.into_inner())
+    }
+
     match &event {
         VaultEvent::EntityChanged { path, file_id } => {
             // Try to read+parse the file and upsert. On failure,
@@ -174,7 +184,7 @@ fn handle_watcher_event(
                 .map(|d| d.as_nanos() as i64)
                 .unwrap_or(0);
             let schema = state.schema_store.current().ok();
-            let index = state.index.lock().expect("index mutex poisoned");
+            let index = recover(state.index.lock());
             match parse_result {
                 Ok((entity, body)) => {
                     let _ = upsert_entity(
@@ -203,7 +213,7 @@ fn handle_watcher_event(
             }
         }
         VaultEvent::EntityDeleted { file_id, .. } => {
-            let index = state.index.lock().expect("index mutex poisoned");
+            let index = recover(state.index.lock());
             let _ = index_delete(index.conn(), file_id);
         }
         VaultEvent::SchemaChanged => {
@@ -220,7 +230,7 @@ fn handle_watcher_event(
             let _ = state.view_store.reload();
         }
         VaultEvent::NeedsRescan => {
-            let mut index = state.index.lock().expect("index mutex poisoned");
+            let mut index = recover(state.index.lock());
             let schema = state.schema_store.current().ok();
             let _ = eduport_core::index::reconcile(
                 index.conn_mut(),
@@ -283,9 +293,18 @@ fn read_and_parse(path: &Path) -> Result<(eduport_core::entity::Entity, String),
 /// Stop the watcher and drop the in-process state. Called on app
 /// shutdown and when the user changes their data folder.
 pub fn shutdown(handle: &EduportStateHandle) {
-    let mut guard = handle.lock().expect("eduport state handle poisoned");
+    // Shutdown is the drop path — we don't care about in-memory
+    // consistency, only that the OS resources (watcher threads,
+    // sqlite Connection) get released. Accept poisoned guards via
+    // into_inner() so a panic earlier in the session doesn't prevent
+    // a clean teardown.
+    let mut guard = handle.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(state) = guard.take() {
-        let _watcher = state.watcher.lock().expect("watcher mutex poisoned").take();
+        let _watcher = state
+            .watcher
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
         // Dropping `state` (Arc) and `_watcher` (Watcher) stops the
         // notify threads; the Connection drops with the Arc.
     }
