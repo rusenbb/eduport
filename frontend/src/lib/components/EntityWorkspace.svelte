@@ -34,6 +34,7 @@
 	import CardPropertiesMenu from './properties/CardPropertiesMenu.svelte';
 	import ColumnVisibilityMenu from './properties/ColumnVisibilityMenu.svelte';
 	import PropertyFilterBar from './properties/PropertyFilterBar.svelte';
+	import FilterBuilder from './properties/FilterBuilder.svelte';
 	import { FIELD_DEFS } from '$lib/entities/meta';
 	import { viewsStore } from '$lib/stores/views';
 	import {
@@ -41,6 +42,7 @@
 		viewFilterToPropertyFilters,
 		type View
 	} from '$lib/types/view';
+	import { treeHasConditions, type FilterTree } from '$lib/types/filter';
 
 	let { type, fileId = null }: { type: EntityType; fileId?: string | null } = $props();
 
@@ -56,6 +58,8 @@
 	let focusMode = $state(false);
 	let saveDialogOpen = $state(false);
 	let propertyFilters: PropertyFilters = $state(parseFilterParams(page.url.searchParams));
+	let compoundFilter: FilterTree | null = $state(null);
+	let showFilterBuilder = $state(false);
 	let selection: Set<string> = $state(new Set());
 	let bulkBusy = $state(false);
 
@@ -84,13 +88,17 @@
 	const filterableProperties = $derived([...customProperties, ...builtinFilterableProps]);
 
 	// True when *anything* is narrowing the list (property filters,
-	// tag filters, or built-in chips) — drives the empty-state copy.
+	// tag filters, built-in chips, or compound filter) — drives the
+	// empty-state copy.
 	const anyFilterActive = $derived(
-		hasActiveFilters(propertyFilters) || $filters.tags.length > 0
+		hasActiveFilters(propertyFilters) ||
+			$filters.tags.length > 0 ||
+			treeHasConditions(compoundFilter)
 	);
 
 	function clearAllFilters() {
 		filters.clear();
+		compoundFilter = null;
 		const url = new URL(page.url);
 		for (const k of ['text', 'num', 'date', 'sort', 'sort_dir']) {
 			url.searchParams.delete(k);
@@ -223,8 +231,13 @@
 			// and custom-schema keys are equally first-class — no
 			// client-side post-filter, no shadow index split.
 			let baseItems: EntityListItem[];
-			if (hasActiveFilters(propertyFilters)) {
-				baseItems = await filterEntitiesByProperties(type, propertyFilters);
+			const treeActive = treeHasConditions(compoundFilter);
+			if (hasActiveFilters(propertyFilters) || treeActive) {
+				baseItems = await filterEntitiesByProperties(
+					type,
+					propertyFilters,
+					treeActive ? compoundFilter : null
+				);
 				if ($filters.tags.length > 0) {
 					const tagged = new Set(
 						(await listEntities(type, $filters.tags)).map((i) => i.file_id)
@@ -284,7 +297,11 @@
 
 	$effect(() => {
 		const _filterKey =
-			$filters.tags.join('\u0000') + '|' + JSON.stringify(propertyFilters);
+			$filters.tags.join('\u0000') +
+			'|' +
+			JSON.stringify(propertyFilters) +
+			'|' +
+			JSON.stringify(compoundFilter);
 		newAction?.set({ label: `New ${TYPE_LABELS[type]}`, onClick: () => (creating = true) });
 		void loadList();
 		return () => newAction?.set(null);
@@ -480,6 +497,9 @@
 		for (const k of ['text', 'num', 'date', 'sort', 'sort_dir', 'group', 'view', 'view_id', 'kanban_by']) {
 			url.searchParams.delete(k);
 		}
+		// Compound filter is in-memory state, not URL — apply (or
+		// clear) it whenever a saved view is loaded.
+		compoundFilter = view?.filter_tree ?? null;
 		if (view) {
 			url.searchParams.set('view_id', view.id);
 			const pf = viewFilterToPropertyFilters(view);
@@ -501,6 +521,7 @@
 		return {
 			viewKind: (view === 'kanban' ? 'board' : view) as 'list' | 'table' | 'board',
 			filter: propertyFiltersToViewFilter(propertyFilters),
+			filterTree: compoundFilter ?? null,
 			sortKey: propertyFilters.sort ?? null,
 			sortDir: propertyFilters.sortDir ?? 'asc',
 			groupByKey: groupByKey ?? null,
@@ -523,6 +544,7 @@
 				name: v.name,
 				kind: body.viewKind,
 				filter: body.filter,
+				filter_tree: body.filterTree,
 				sort_key: body.sortKey,
 				sort_dir: body.sortDir,
 				group_by_key: body.groupByKey,
@@ -765,6 +787,26 @@
 				filters={propertyFilters}
 				onChange={syncFiltersToUrl}
 			/>
+			<div class="border-b border-[var(--color-border)] px-4 py-2">
+				<button
+					type="button"
+					class="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+					onclick={() => (showFilterBuilder = !showFilterBuilder)}
+				>
+					{showFilterBuilder ? '▾' : '▸'} Compound filter{treeHasConditions(compoundFilter)
+						? ` (active)`
+						: ''}
+				</button>
+				{#if showFilterBuilder}
+					<div class="mt-2">
+						<FilterBuilder
+							tree={compoundFilter}
+							properties={filterableProperties}
+							onChange={(next) => (compoundFilter = next)}
+						/>
+					</div>
+				{/if}
+			</div>
 		{/if}
 
 		{#if selection.size > 0}
@@ -937,6 +979,7 @@
 		mode="create"
 		viewKind={body.viewKind}
 		filter={body.filter}
+		filterTree={body.filterTree}
 		sortKey={body.sortKey}
 		sortDir={body.sortDir}
 		groupByKey={body.groupByKey}

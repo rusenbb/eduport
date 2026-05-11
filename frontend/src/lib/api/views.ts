@@ -10,6 +10,7 @@ export interface CreateViewBody {
 	name: string;
 	kind?: ViewKind;
 	filter?: View['filter'];
+	filter_tree?: View['filter_tree'];
 	sort_key?: string | null;
 	sort_dir?: 'asc' | 'desc';
 	group_by_key?: string | null;
@@ -21,6 +22,7 @@ export interface UpdateViewBody {
 	name: string;
 	kind: ViewKind;
 	filter: View['filter'];
+	filter_tree?: View['filter_tree'];
 	sort_key?: string | null;
 	sort_dir?: 'asc' | 'desc';
 	group_by_key?: string | null;

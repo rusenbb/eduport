@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::EntityType;
+use crate::view::filter_tree::FilterTree;
 
 pub const VIEWS_VERSION: u32 = 1;
 
@@ -53,8 +54,19 @@ pub struct View {
     pub name: String,
     #[serde(default)]
     pub kind: ViewKind,
+    /// Legacy flat filter (text equality / num range / date range).
+    /// Kept on disk for back-compat; new views can leave this empty
+    /// and use [`Self::filter_tree`] instead. The two are merged with
+    /// AND when both are populated — useful for evolving an existing
+    /// view by *adding* compound conditions without losing the old
+    /// chip filter.
     #[serde(default)]
     pub filter: ViewFilter,
+    /// Notion-style compound filter (AND/OR groups + per-property
+    /// operators). When present, takes precedence over / merges with
+    /// `filter`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter_tree: Option<FilterTree>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_key: Option<String>,
     #[serde(default)]
@@ -182,6 +194,7 @@ mod tests {
             name: "Active applications".into(),
             kind: ViewKind::Table,
             filter: ViewFilter::default(),
+            filter_tree: None,
             sort_key: Some("deadline".into()),
             sort_dir: SortDir::Desc,
             group_by_key: None,
@@ -201,6 +214,7 @@ mod tests {
             name: "X".into(),
             kind: ViewKind::List,
             filter: ViewFilter::default(),
+            filter_tree: None,
             sort_key: None,
             sort_dir: SortDir::Asc,
             group_by_key: None,
@@ -220,6 +234,7 @@ mod tests {
             name: "X".into(),
             kind: ViewKind::List,
             filter: ViewFilter::default(),
+            filter_tree: None,
             sort_key: None,
             sort_dir: SortDir::Asc,
             group_by_key: None,

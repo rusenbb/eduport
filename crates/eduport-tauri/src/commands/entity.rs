@@ -115,6 +115,7 @@ pub fn core_entity_list(
         num: &num,
         date: &date,
         tags: &tag_refs,
+        tree: None,
         sort_key: None,
         sort_dir: "asc",
     };

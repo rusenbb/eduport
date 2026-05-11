@@ -36,6 +36,10 @@ pub struct CreateViewBody {
     pub kind: ViewKind,
     #[serde(default)]
     pub filter: ViewFilter,
+    /// Notion-style compound filter (Phase B). `None` keeps the saved
+    /// view chip-only, exactly like before.
+    #[serde(default)]
+    pub filter_tree: Option<eduport_core::view::FilterTree>,
     pub sort_key: Option<String>,
     #[serde(default)]
     pub sort_dir: SortDir,
@@ -49,6 +53,8 @@ pub struct UpdateViewBody {
     pub name: String,
     pub kind: ViewKind,
     pub filter: ViewFilter,
+    #[serde(default)]
+    pub filter_tree: Option<eduport_core::view::FilterTree>,
     pub sort_key: Option<String>,
     #[serde(default)]
     pub sort_dir: SortDir,
@@ -92,6 +98,7 @@ pub fn core_view_create(
         name: body.name,
         kind: body.kind,
         filter: body.filter,
+        filter_tree: body.filter_tree,
         sort_key: body.sort_key,
         sort_dir: body.sort_dir,
         group_by_key: body.group_by_key,
@@ -118,6 +125,7 @@ pub fn core_view_update(
         name: body.name,
         kind: body.kind,
         filter: body.filter,
+        filter_tree: body.filter_tree,
         sort_key: body.sort_key,
         sort_dir: body.sort_dir,
         group_by_key: body.group_by_key,

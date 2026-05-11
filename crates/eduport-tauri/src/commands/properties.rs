@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 
 use eduport_core::query::{query_for_filter, value_counts_for, EntitySummaryView, FilterInput};
+use eduport_core::view::FilterTree;
 use eduport_core::EntityType;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -51,6 +52,10 @@ pub struct PropertyFiltersRequest {
     pub num: BTreeMap<String, (Option<f64>, Option<f64>)>,
     #[serde(default)]
     pub date: BTreeMap<String, (Option<String>, Option<String>)>,
+    /// Optional Notion-style compound filter tree (Phase B). Merged
+    /// with the flat chip filter via AND in the query adapter.
+    #[serde(default)]
+    pub tree: Option<FilterTree>,
     pub sort: Option<String>,
     /// `"asc"` or `"desc"`; anything else is treated as ascending.
     #[serde(default)]
@@ -83,6 +88,7 @@ pub fn core_property_value_counts(
         num: &num,
         date: &date,
         tags: &[],
+        tree: None,
         sort_key: None,
         sort_dir: "asc",
     };
@@ -127,6 +133,7 @@ pub fn core_filter_entities_by_properties(
         num: &filters.num,
         date: &filters.date,
         tags: &[],
+        tree: filters.tree.as_ref(),
         sort_key: filters.sort.as_deref(),
         sort_dir,
     };
