@@ -41,6 +41,20 @@
 
 	async function onClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
+		const embed = target.closest('.view-embed') as HTMLElement | null;
+		if (embed) {
+			event.preventDefault();
+			const name = embed.getAttribute('data-view');
+			if (name) {
+				// Embed-as-card MVP: navigate to a generic landing path
+				// where the saved view can be picked. The full inline
+				// rendering of the view's filtered entity list lives in
+				// a follow-up — this step ships the round-trip + the
+				// affordance, not the inline list.
+				goto(`/?embed=${encodeURIComponent(name)}`);
+			}
+			return;
+		}
 		if (target.tagName === 'A' && target.classList.contains('wikilink')) {
 			event.preventDefault();
 			const t = target.getAttribute('data-target');
