@@ -12,6 +12,7 @@
 		MultiSelectProperty
 	} from '$lib/types/schema';
 	import BodyEditor from './BodyEditor.svelte';
+	import ResourceListEditor from './ResourceListEditor.svelte';
 	import TagPicker from './TagPicker.svelte';
 	import WikilinkListPicker from './WikilinkListPicker.svelte';
 	import WikilinkPicker from './WikilinkPicker.svelte';
@@ -303,11 +304,20 @@
 									/>
 								</div>
 							{:else if def.kind === 'resources'}
-								<textarea
-									value={JSON.stringify(fieldValues[def.key] ?? [], null, 2)}
-									oninput={(event) => setString(def.key, event.currentTarget.value)}
-									class="mt-1 h-24 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs outline-none focus:border-[var(--color-accent)]"
-								></textarea>
+								<div class="mt-1">
+									<!-- `links` / `emails` are the only two resource
+									built-ins today; we infer mode from the field key
+									so each row gets a typed input (URL vs email)
+									without an extra def-shape flag. -->
+									<ResourceListEditor
+										mode={def.key === 'emails' ? 'email' : 'link'}
+										values={Array.isArray(fieldValues[def.key])
+											? (fieldValues[def.key] as Record<string, unknown>[])
+											: []}
+										onChange={(next) =>
+											(fieldValues = { ...fieldValues, [def.key]: next })}
+									/>
+								</div>
 							{:else}
 								<input
 									value={stringValue(def.key)}

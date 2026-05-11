@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Icon from '../Icon.svelte';
-	import PropertyTypeIcon from './PropertyTypeIcon.svelte';
 	import {
 		COLOR_CLASSES,
 		DEFAULT_PROPERTY_FILTERS,
@@ -8,6 +7,10 @@
 		type PropertyFilters
 	} from '$lib/types/schema';
 
+	// Chip-only filter strip. Adding new filters now goes through the
+	// "Compound filter" block below this bar; this component renders
+	// the active chips (which still survive in the URL/saved-view
+	// shape) and lets the user remove/edit them in-place.
 	let {
 		properties,
 		filters = $bindable(DEFAULT_PROPERTY_FILTERS),
@@ -18,58 +21,9 @@
 		onChange?: (next: PropertyFilters) => void;
 	} = $props();
 
-	let addOpen = $state(false);
-
 	function update(next: PropertyFilters) {
 		filters = next;
 		onChange?.(next);
-	}
-
-	function activeKeys(): Set<string> {
-		return new Set([
-			...Object.keys(filters.text),
-			...Object.keys(filters.num),
-			...Object.keys(filters.date)
-		]);
-	}
-
-	function isFilterableType(p: Property): boolean {
-		// All except checkbox-without-tri-state — but for simplicity we allow
-		// all types; checkbox is handled below via "is true" / "is false".
-		return p.type !== 'relation' || true;
-	}
-
-	const sortableProperties = $derived(properties.filter((p) => p.type !== 'relation'));
-
-	function startFilter(prop: Property) {
-		const key = prop.key;
-		const next: PropertyFilters = {
-			text: { ...filters.text },
-			num: { ...filters.num },
-			date: { ...filters.date },
-			sort: filters.sort,
-			sortDir: filters.sortDir
-		};
-		switch (prop.type) {
-			case 'text':
-			case 'url':
-			case 'single-select':
-			case 'multi-select':
-			case 'relation':
-				next.text[key] = '';
-				break;
-			case 'number':
-				next.num[key] = [null, null];
-				break;
-			case 'date':
-				next.date[key] = [null, null];
-				break;
-			case 'checkbox':
-				next.text[key] = ''; // 'true' / 'false'
-				break;
-		}
-		update(next);
-		addOpen = false;
 	}
 
 	function removeFilter(key: string) {
@@ -98,15 +52,9 @@
 		update({ ...filters, date: { ...filters.date, [key]: [lo, hi] } });
 	}
 
-	function setSort(key: string | undefined, dir: 'asc' | 'desc' = 'asc') {
-		update({ ...filters, sort: key || undefined, sortDir: key ? dir : undefined });
-	}
-
 	function clearAll() {
 		update({ text: {}, num: {}, date: {} });
 	}
-
-	const inactive = $derived(properties.filter((p) => !activeKeys().has(p.key)));
 </script>
 
 <div class="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-2 text-xs">
@@ -208,61 +156,8 @@
 		{/if}
 	{/each}
 
-	<!-- Add filter dropdown -->
-	{#if inactive.length > 0}
-		<div class="relative">
-			<button
-				class="rounded border border-[var(--color-border)] px-2 py-1 hover:bg-white/5"
-				onclick={() => (addOpen = !addOpen)}
-			>
-				<Icon name="plus" size={12} /> Filter
-			</button>
-			{#if addOpen}
-				<div class="absolute left-0 top-full z-30 mt-1 w-48 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-panel)] shadow-xl">
-					{#each inactive as prop}
-						<button
-							class="flex w-full items-center gap-2 border-b border-[var(--color-border)] px-3 py-1.5 text-left text-xs last:border-b-0 hover:bg-white/5"
-							onclick={() => startFilter(prop)}
-						>
-							<PropertyTypeIcon type={prop.type} class="text-[var(--color-muted)]" />
-							<span class="truncate">{prop.name}</span>
-							<span class="ml-auto text-[10px] text-[var(--color-muted)]">{prop.type}</span>
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- Sort -->
-	{#if sortableProperties.length > 0}
-		<div class="ml-auto flex items-center gap-1">
-			<span class="text-[var(--color-muted)]">Sort</span>
-			<select
-				value={filters.sort ?? ''}
-				onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value || undefined, filters.sortDir ?? 'asc')}
-				class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[10px]"
-			>
-				<option value="">(name)</option>
-				{#each sortableProperties as prop}
-					<option value={prop.key}>{prop.name}</option>
-				{/each}
-			</select>
-			{#if filters.sort}
-				<select
-					value={filters.sortDir ?? 'asc'}
-					onchange={(e) => setSort(filters.sort, (e.currentTarget as HTMLSelectElement).value as 'asc' | 'desc')}
-					class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[10px]"
-				>
-					<option value="asc">↑</option>
-					<option value="desc">↓</option>
-				</select>
-			{/if}
-		</div>
-	{/if}
-
-	{#if Object.keys(filters.text).length > 0 || Object.keys(filters.num).length > 0 || Object.keys(filters.date).length > 0 || filters.sort}
-		<button class="text-[var(--color-muted)] underline hover:text-[var(--color-text)]" onclick={clearAll}>
+	{#if Object.keys(filters.text).length > 0 || Object.keys(filters.num).length > 0 || Object.keys(filters.date).length > 0}
+		<button class="ml-auto text-[var(--color-muted)] underline hover:text-[var(--color-text)]" onclick={clearAll}>
 			clear all
 		</button>
 	{/if}

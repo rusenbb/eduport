@@ -16,6 +16,8 @@
 	import { extractIcon, extractCover } from '$lib/entities/cosmetics';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
+	import ResourceListEditor from './ResourceListEditor.svelte';
+	import TagPicker from './TagPicker.svelte';
 	import PropertyConfigDialog from './properties/PropertyConfigDialog.svelte';
 	import PropertyEditor from './properties/PropertyEditor.svelte';
 	import PropertyTypeIcon from './properties/PropertyTypeIcon.svelte';
@@ -250,11 +252,26 @@
 		new Set($schemaStore.schema?.types[detail.type]?.builtin_keys ?? [])
 	);
 
+	// vaultdb's typed read path round-trips the entity through
+	// `record_to_json`, which injects the virtual fields `_name`,
+	// `_path`, `_folder`, `_modified`, `_created`. They land in the
+	// flattened `custom` map and serialize back out at the top level.
+	// They're useful for debugging / power users but visual noise by
+	// default, so we split them into their own collapsible "System"
+	// section.
+	function isVirtualKey(k: string): boolean {
+		return k.startsWith('_');
+	}
 	const fields = $derived(
 		Object.entries(detail.entity).filter(
-			([k]) => k !== 'name' && k !== 'tags' && !customKeys.has(k)
+			([k]) =>
+				k !== 'name' && k !== 'tags' && !customKeys.has(k) && !isVirtualKey(k)
 		)
 	);
+	const systemFields = $derived(
+		Object.entries(detail.entity).filter(([k]) => isVirtualKey(k))
+	);
+	let showSystemFields = $state(false);
 
 	// Inline editing — one property at a time.
 	let editingKey: string | null = $state(null);
@@ -468,13 +485,132 @@
 	</div>
 
 	<div class="px-4 py-2">
-		{#if tags.length > 0}
-			<DetailField name="tags" value={tags} />
-		{/if}
+		<!-- Tags row: read view shows clickable chips; clicking the
+		pencil flips into TagPicker via the shared editingKey/Value
+		state used by custom properties below. Tag membership writes
+		back through updateEntity → eduport-tauri → vaultdb. -->
+		<div class="group relative border-b border-[var(--color-border)] py-3">
+			<div class="flex items-center justify-between">
+				<div class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">tags</div>
+				{#if editingKey !== 'tags'}
+					<button
+						class="text-[10px] text-[var(--color-muted)] opacity-0 hover:text-[var(--color-text)] group-hover:opacity-100"
+						onclick={() => startEdit('tags', tags)}
+						aria-label="Edit tags"
+					>
+						<span class="text-[10px]">✎ Edit</span>
+					</button>
+				{/if}
+			</div>
+			<div class="mt-1">
+				{#if editingKey === 'tags'}
+					<TagPicker
+						bind:tags={
+							() => (Array.isArray(editingValue) ? (editingValue as string[]) : []),
+							(next) => (editingValue = next)
+						}
+					/>
+					<div class="mt-2 flex gap-1 text-[10px]">
+						<button
+							class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
+							onclick={() => {
+								// Tags need special handling: keep the type-tag
+								// (eduport-type/X) and any eduport-doctype/* on
+								// save — they're invisible to the picker but
+								// part of the wire shape.
+								const reserved = (
+									Array.isArray(detail.entity.tags) ? detail.entity.tags : []
+								).filter(
+									(t) =>
+										typeof t === 'string' &&
+										(t.startsWith('eduport-type/') ||
+											t.startsWith('eduport-doctype/'))
+								);
+								editingValue = [
+									...reserved,
+									...(Array.isArray(editingValue) ? (editingValue as string[]) : [])
+								];
+								void commitEdit();
+							}}>Save</button
+						>
+						<button
+							class="rounded border border-[var(--color-border)] px-2 py-1 hover:bg-white/5"
+							onclick={cancelEdit}>Cancel</button
+						>
+					</div>
+				{:else}
+					<DetailField name="tags" value={tags} />
+				{/if}
+			</div>
+		</div>
+		<!-- Non-schema built-ins (today: links, emails — anything
+		whose shape doesn't fit the scalar Property variants). Edit
+		flips into ResourceListEditor when the value is a list of
+		{label, url} / {label, email} records; otherwise falls back to
+		the existing DetailField read view (no inline edit yet for
+		odd one-off shapes). -->
 		{#each fields as [name, value]}
-			<DetailField {name} {value} />
+			{@const isResources = name === 'links' || name === 'emails'}
+			<div class="group relative border-b border-[var(--color-border)] py-3">
+				<div class="flex items-center justify-between">
+					<div class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">{name}</div>
+					{#if isResources && editingKey !== name}
+						<button
+							class="text-[10px] text-[var(--color-muted)] opacity-0 hover:text-[var(--color-text)] group-hover:opacity-100"
+							onclick={() => startEdit(name, Array.isArray(value) ? value : [])}
+							aria-label={`Edit ${name}`}
+						>
+							<span class="text-[10px]">✎ Edit</span>
+						</button>
+					{/if}
+				</div>
+				<div class="mt-1">
+					{#if isResources && editingKey === name}
+						<ResourceListEditor
+							mode={name === 'emails' ? 'email' : 'link'}
+							values={Array.isArray(editingValue)
+								? (editingValue as Record<string, unknown>[])
+								: []}
+							onChange={(next) => (editingValue = next)}
+						/>
+						<div class="mt-2 flex gap-1 text-[10px]">
+							<button
+								class="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
+								onclick={commitEdit}>Save</button
+							>
+							<button
+								class="rounded border border-[var(--color-border)] px-2 py-1 hover:bg-white/5"
+								onclick={cancelEdit}>Cancel</button
+							>
+						</div>
+					{:else}
+						<div class="-mt-1">
+							<DetailField {name} {value} />
+						</div>
+					{/if}
+				</div>
+			</div>
 		{/each}
 	</div>
+
+	{#if systemFields.length > 0}
+		<div class="border-t border-[var(--color-border)] px-4 py-2">
+			<button
+				type="button"
+				class="text-[10px] uppercase tracking-wider text-[var(--color-muted)] hover:text-[var(--color-text)]"
+				onclick={() => (showSystemFields = !showSystemFields)}
+			>
+				{showSystemFields ? '▾' : '▸'} System ({systemFields.length})
+			</button>
+			{#if showSystemFields}
+				<div class="mt-2">
+					{#each systemFields as [name, value]}
+						<DetailField {name} {value} />
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	{#if customPropertiesForType.length > 0}
 		<div class="border-t border-[var(--color-border)] px-4 py-3">
