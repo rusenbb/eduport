@@ -30,7 +30,7 @@
 	function initialValue(def: FieldDef): unknown {
 		const value = initial?.frontmatter?.[def.key];
 		if (value !== undefined && value !== null) return value;
-		if (def.kind === 'wikilinks') return [];
+		if (def.kind === 'wikilinks' || def.kind === 'multi-select') return [];
 		if (def.kind === 'resources') return [];
 		if (def.key === 'status' && type === 'application') return 'planning';
 		if (def.key === 'direction' && type === 'email') return 'outbound';
@@ -102,6 +102,19 @@
 			if (def.kind === 'wikilinks') {
 				const links = Array.isArray(value) ? value.filter(Boolean) : [];
 				out[def.key] = links;
+				continue;
+			}
+			if (def.kind === 'multi-select') {
+				// Stored as an array of option values. Empty array
+				// means "unset" — drop the key so YAML stays clean.
+				const items = Array.isArray(value) ? value.filter(Boolean) : [];
+				if (items.length) out[def.key] = items;
+				continue;
+			}
+			if (def.kind === 'number') {
+				if (value === '' || value === null || value === undefined) continue;
+				const n = Number(value);
+				if (Number.isFinite(n)) out[def.key] = n;
 				continue;
 			}
 			if (type === 'email' && ['to', 'cc', 'bcc'].includes(def.key)) {
@@ -205,6 +218,38 @@
 										<option value={option}>{option}</option>
 									{/each}
 								</select>
+							{:else if def.kind === 'multi-select'}
+								<div class="mt-1 flex flex-wrap gap-1.5">
+									{#each def.options ?? [] as option}
+										{@const selected = Array.isArray(fieldValues[def.key]) && fieldValues[def.key].includes(option)}
+										<button
+											type="button"
+											onclick={() => {
+												const cur: string[] = Array.isArray(fieldValues[def.key])
+													? fieldValues[def.key]
+													: [];
+												const next = selected
+													? cur.filter((v) => v !== option)
+													: [...cur, option];
+												fieldValues = { ...fieldValues, [def.key]: next };
+											}}
+											class="rounded border px-2 py-0.5 text-xs {selected
+												? 'border-[var(--color-accent)] bg-[var(--color-accent)]/20 text-[var(--color-text)]'
+												: 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-muted)] hover:text-[var(--color-text)]'}"
+										>
+											{option}
+										</button>
+									{/each}
+								</div>
+							{:else if def.kind === 'number'}
+								<input
+									value={stringValue(def.key)}
+									type="number"
+									step="any"
+									placeholder={def.placeholder ?? ''}
+									oninput={(event) => setString(def.key, event.currentTarget.value)}
+									class="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+								/>
 							{:else if def.kind === 'wikilink' && def.linkType}
 								<div class="mt-1">
 									<WikilinkPicker

@@ -4,7 +4,21 @@ import type { Property } from '$lib/types/schema';
 export interface FieldDef {
 	key: string;
 	label: string;
-	kind: 'text' | 'email' | 'url' | 'date' | 'select' | 'wikilink' | 'wikilinks' | 'resources';
+	kind:
+		| 'text'
+		| 'email'
+		| 'url'
+		| 'date'
+		| 'number'
+		| 'select'
+		| 'multi-select'
+		| 'wikilink'
+		| 'wikilinks'
+		| 'resources';
+	/** For 'select' / 'multi-select' kinds: the option *values*. The
+	 * authoritative option list (with labels and colours) lives on the
+	 * schema-side built-in definition; this is only the value list,
+	 * kept in sync for UI fallbacks. */
 	options?: string[];
 	linkType?: EntityType;
 	placeholder?: string;
@@ -32,10 +46,30 @@ export const TYPE_TAGS: Record<EntityType, string> = {
 	note: 'eduport-type/note'
 };
 
+// `options` for retyped built-in selects mirrors the seed in
+// crates/eduport-core/src/schema/builtins.rs. The schema is the
+// authoritative source for labels/colours; this list keeps the UI
+// rendering correct when no schema has been loaded yet (early boot,
+// onboarding before vault selection).
+const COUNTRY_VALUES = ['usa', 'japan', 'france', 'germany', 'singapore', 'south-korea'];
+const CITY_VALUES = [
+	'new-york', 'boston', 'san-francisco', 'los-angeles',
+	'tokyo', 'kyoto', 'osaka',
+	'paris', 'lyon',
+	'berlin', 'munich', 'heidelberg',
+	'singapore',
+	'seoul', 'busan'
+];
+const LANGUAGE_VALUES = ['english', 'japanese', 'french', 'german', 'mandarin', 'malay', 'tamil', 'korean'];
+const ROLE_VALUES = [
+	'phd-student', 'masters-student', 'postdoc', 'research-scientist',
+	'lecturer', 'assistant-professor', 'associate-professor', 'professor', 'admin'
+];
+
 export const FIELD_DEFS: Record<EntityType, FieldDef[]> = {
 	university: [
-		{ key: 'country', label: 'Country', kind: 'text' },
-		{ key: 'city', label: 'City', kind: 'text' },
+		{ key: 'country', label: 'Country', kind: 'select', options: COUNTRY_VALUES },
+		{ key: 'city', label: 'City', kind: 'select', options: CITY_VALUES },
 		{ key: 'website', label: 'Website', kind: 'url' },
 		{ key: 'links', label: 'Links', kind: 'resources' },
 		{ key: 'emails', label: 'Emails', kind: 'resources' }
@@ -48,7 +82,7 @@ export const FIELD_DEFS: Record<EntityType, FieldDef[]> = {
 		{ key: 'emails', label: 'Emails', kind: 'resources' }
 	],
 	person: [
-		{ key: 'role', label: 'Role', kind: 'text' },
+		{ key: 'role', label: 'Role', kind: 'select', options: ROLE_VALUES },
 		{ key: 'email', label: 'Email', kind: 'email' },
 		{ key: 'website', label: 'Website', kind: 'url' },
 		{ key: 'university', label: 'University', kind: 'wikilink', linkType: 'university' },
@@ -58,10 +92,10 @@ export const FIELD_DEFS: Record<EntityType, FieldDef[]> = {
 	program: [
 		{ key: 'level', label: 'Level', kind: 'select', options: ['undergrad', 'masters', 'phd'] },
 		{ key: 'department', label: 'Department', kind: 'text' },
-		{ key: 'language', label: 'Language', kind: 'text' },
+		{ key: 'language', label: 'Language', kind: 'multi-select', options: LANGUAGE_VALUES },
 		{ key: 'duration', label: 'Duration', kind: 'text' },
 		{ key: 'deadline', label: 'Deadline', kind: 'date' },
-		{ key: 'tuition', label: 'Tuition', kind: 'text' },
+		{ key: 'tuition', label: 'Tuition', kind: 'number' },
 		{ key: 'website', label: 'Website', kind: 'url' },
 		{ key: 'university', label: 'University', kind: 'wikilink', linkType: 'university' },
 		{ key: 'people', label: 'People', kind: 'wikilinks', linkType: 'person' },
@@ -141,6 +175,13 @@ export function builtinFilterableProperties(type: EntityType): Property[] {
 				required: false,
 				type: 'text'
 			} as Property);
+		} else if (f.kind === 'number') {
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'number'
+			} as Property);
 		} else if (f.kind === 'date') {
 			filterable.push({
 				key: f.key,
@@ -154,6 +195,14 @@ export function builtinFilterableProperties(type: EntityType): Property[] {
 				name: f.label,
 				required: false,
 				type: 'single-select',
+				options: f.options.map((o) => ({ value: o, label: o, color: 'gray' }))
+			} as Property);
+		} else if (f.kind === 'multi-select' && f.options) {
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'multi-select',
 				options: f.options.map((o) => ({ value: o, label: o, color: 'gray' }))
 			} as Property);
 		}
@@ -226,8 +275,12 @@ export function builtinKindToPropertyType(
 			return 'url';
 		case 'date':
 			return 'date';
+		case 'number':
+			return 'number';
 		case 'select':
 			return 'single-select';
+		case 'multi-select':
+			return 'multi-select';
 		case 'wikilink':
 			return 'relation';
 		case 'wikilinks':
@@ -243,7 +296,9 @@ export const BUILTIN_KIND_LABELS: Record<FieldDef['kind'], string> = {
 	email: 'Email',
 	url: 'URL',
 	date: 'Date',
+	number: 'Number',
 	select: 'Single select',
+	'multi-select': 'Multi-select',
 	wikilink: 'Relation',
 	wikilinks: 'Relations (list)',
 	resources: 'Resources (list)'
