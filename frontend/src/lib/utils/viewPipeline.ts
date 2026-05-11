@@ -130,6 +130,11 @@ function asStringList(value: unknown): string[] {
 	return [];
 }
 
+function wikilinkTarget(s: string): string | null {
+	const m = /^\[\[(.+)\]\]$/.exec(s.trim());
+	return m ? m[1] : null;
+}
+
 /**
  * Build the buckets for a `groupBy` property over `items`. The
  * returned list keeps the schema's option order for select-typed
@@ -182,6 +187,19 @@ export function groupItems(
 			}
 			const b = numberBucket(v, spec.numberStep ?? 1);
 			ensure(buckets, b.value, b.label, 'gray').items.push(item);
+		} else if (property.type === 'relation') {
+			// Single wikilink string OR list of them — extract target
+			// id, bucket by it. Bucket label defaults to the id;
+			// GroupedList may swap in a resolved entity name.
+			const links = typeof v === 'string' ? [v] : asStringList(v);
+			let any = false;
+			for (const link of links) {
+				const target = wikilinkTarget(link);
+				if (!target) continue;
+				ensure(buckets, target, target, 'gray').items.push(item);
+				any = true;
+			}
+			if (!any) uncategorized.push(item);
 		} else {
 			// text / url / fallback — first-letter buckets
 			const s = typeof v === 'string' ? v : '';
@@ -224,11 +242,11 @@ export function groupItems(
 	return out;
 }
 
-/** Properties the user can group by — every property type is now
- * supported. Resource-list / relation properties are excluded
- * because their values are wikilinks (unstable label space). */
+/** Properties the user can group by — every supported property type.
+ * `relation` is included; bucket value is the wikilink target id and
+ * GroupedList resolves it to the entity name for the bucket label. */
 export function groupableFrom(properties: Property[]): Property[] {
 	return properties.filter((p) =>
-		['single-select', 'multi-select', 'date', 'number', 'text', 'url'].includes(p.type)
+		['single-select', 'multi-select', 'date', 'number', 'text', 'url', 'relation'].includes(p.type)
 	);
 }

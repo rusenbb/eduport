@@ -205,6 +205,20 @@ export function builtinFilterableProperties(type: EntityType): Property[] {
 				type: 'multi-select',
 				options: f.options.map((o) => ({ value: o, label: o, color: 'gray' }))
 			} as Property);
+		} else if (f.kind === 'wikilink' || f.kind === 'wikilinks') {
+			// Surface relation built-ins (University on Person, Program
+			// on Application, Recommender on Document, …) so the user
+			// can filter / group by them. Plurality is recorded in
+			// FIELD_DEFS.kind; the schema's `relation` type is single
+			// today but PropertyValue / PropertyEditor handle either
+			// shape (see Phase A relation-list fix).
+			filterable.push({
+				key: f.key,
+				name: f.label,
+				required: false,
+				type: 'relation',
+				target_types: f.linkType ? [f.linkType] : null
+			} as Property);
 		}
 	}
 	return filterable;

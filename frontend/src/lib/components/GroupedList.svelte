@@ -8,6 +8,7 @@
 	import { COLOR_CLASSES } from '$lib/types/schema';
 	import type { Property } from '$lib/types/schema';
 	import { groupItems, type GroupGranularity } from '$lib/utils/viewPipeline';
+	import { resolveEntity } from '$lib/api/entities';
 	import EntityList from './EntityList.svelte';
 
 	let {
@@ -51,6 +52,24 @@
 	function toggle(value: string) {
 		collapsed = { ...collapsed, [value]: !collapsed[value] };
 	}
+
+	// Bucket-label resolution for relation grouping. The pipeline's
+	// bucket value/label for relations is the wikilink target id (e.g.
+	// `kyoto-university-…`); resolve to the entity's `name` so the
+	// header shows "Kyoto University" instead of the slug.
+	let resolvedNames: Record<string, string> = $state({});
+	$effect(() => {
+		if (!buckets || groupBy?.type !== 'relation') return;
+		const targets = buckets
+			.map((b) => b.value)
+			.filter((v) => v !== '__uncategorized__' && !(v in resolvedNames));
+		for (const t of targets) {
+			void resolveEntity(t).then(
+				(r) => (resolvedNames = { ...resolvedNames, [t]: r.name }),
+				() => {}
+			);
+		}
+	});
 </script>
 
 {#if !buckets}
@@ -66,7 +85,7 @@
 			>
 				<span class="text-[10px] text-[var(--color-muted)]">{isCollapsed ? '▶' : '▼'}</span>
 				<span class="inline-flex h-2 w-2 rounded-full {c.bg} border {c.border}"></span>
-				<span>{group.label}</span>
+				<span>{resolvedNames[group.value] ?? group.label}</span>
 				<span class="text-[10px] text-[var(--color-muted)]">{group.items.length}</span>
 			</button>
 			{#if !isCollapsed}
