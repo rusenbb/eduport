@@ -136,8 +136,16 @@
 				void doCreate();
 			}
 		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			open = false;
+			// Consume ESC only when the dropdown is open. Otherwise
+			// let it bubble so a surrounding dialog (EntityForm,
+			// inline edit row, …) can act on it. stopPropagation here
+			// is what keeps a typeahead-dismiss from also tearing down
+			// the parent edit window.
+			if (open) {
+				e.preventDefault();
+				e.stopPropagation();
+				open = false;
+			}
 		} else if (e.key === 'Backspace' && query === '' && multi && selectedValues.length > 0) {
 			onChange(selectedValues.slice(0, -1));
 		}
