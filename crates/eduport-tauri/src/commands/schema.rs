@@ -334,15 +334,14 @@ pub fn core_schema_purge_orphans(
 
 // ── helpers ────────────────────────────────────────────────────────
 
-/// Parse a JSON property body. Goes through serde_yaml as the
-/// canonical wire format (matches what's stored in schema.yaml).
+/// Parse a JSON property body directly into the typed [`Property`].
+/// `Property` is a `#[serde(tag = "type")]` tagged enum with no
+/// YAML-specific deserialiser idioms, so a JSON→Property deserialise
+/// produces the same value the previous JSON→yaml::Value→string→
+/// Property round trip did.
 fn parse_property(value: JsonValue) -> Result<Property, CommandError> {
-    let yaml: serde_yaml::Value = serde_json::from_value(value)
+    let prop: Property = serde_json::from_value(value)
         .map_err(|e| CommandError::invalid(format!("invalid property body: {e}")))?;
-    let yaml_text = serde_yaml::to_string(&yaml)
-        .map_err(|e| CommandError::internal(format!("yaml serialise: {e}")))?;
-    let prop: Property = serde_yaml::from_str(&yaml_text)
-        .map_err(|e| CommandError::invalid(format!("property parse: {e}")))?;
     prop.validate().map_err(CommandError::invalid)?;
     Ok(prop)
 }

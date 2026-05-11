@@ -194,42 +194,47 @@ pub fn core_entity_resolve(
     target: String,
 ) -> Result<ResolveResult, CommandError> {
     let st = require_state(&state)?;
-    let index = st
-        .index
-        .lock()
-        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
-    // Match against either the file_id (filename stem) or the entity
-    // name. Type comes from the FTS row's joined tags column —
-    // `eduport-type/<value>` is the discriminator. The bespoke
-    // `entities.type` SQL column went away when storage moved to the
-    // shared vaultdb-fts crate (which is type-agnostic on purpose).
-    let mut matches: Vec<(String, String, String)> = Vec::new();
-    let mut stmt = index
-        .conn()
-        .prepare(
-            "SELECT e.file_id, e.name, ef.tags \
-             FROM entities e \
-             JOIN entities_fts ef ON e.rowid = ef.rowid \
-             WHERE e.file_id = ?1 OR e.name = ?1",
-        )
-        .map_err(eduport_core::index::IndexError::from)?;
-    let mut rows = stmt
-        .query([&target])
-        .map_err(eduport_core::index::IndexError::from)?;
-    while let Some(row) = rows.next().map_err(eduport_core::index::IndexError::from)? {
-        let file_id: String = row.get(0).map_err(eduport_core::index::IndexError::from)?;
-        let name: String = row.get(1).map_err(eduport_core::index::IndexError::from)?;
-        let tags: String = row.get(2).map_err(eduport_core::index::IndexError::from)?;
-        let Some(entity_type) = tags
-            .split_whitespace()
-            .find_map(|t| t.strip_prefix("eduport-type/").map(String::from))
-        else {
-            continue;
-        };
-        matches.push((file_id, entity_type, name));
-    }
-    drop(rows);
-    drop(stmt);
+    // Resolve via vault.query() rather than the FTS5 cache: the cache
+    // can lag a write (debounce window, in-flight reconcile) and a
+    // missed resolution shows up as a broken wikilink in the UI. The
+    // canonical source is on-disk frontmatter, which vault.query reads
+    // directly. Same {file_id OR name} semantics as the prior SQL,
+    // expressed as Expr::Or over `_name` (the filename-stem virtual
+    // field) and the `name` frontmatter key.
+    let vault = st.entity_store.vault();
+    let target_value = vaultdb_core::Value::String(target.clone());
+    let filter = vaultdb_core::Expr::Or(vec![
+        vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Equals {
+            field: "_name".into(),
+            value: target_value.clone(),
+        }),
+        vaultdb_core::Expr::Predicate(vaultdb_core::Predicate::Equals {
+            field: "name".into(),
+            value: target_value,
+        }),
+    ]);
+    let records = vault
+        .query(&vaultdb_core::Query {
+            folder: String::new(),
+            filter: Some(filter),
+            select: None,
+            sort: None,
+            limit: None,
+            recursive: false,
+        })
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
+    let mut matches: Vec<(String, String, String)> = records
+        .into_iter()
+        .filter_map(|r| {
+            let file_id = r.path.file_stem()?.to_str()?.to_string();
+            let entity_type = eduport_core::entity::record_eduport_type(&r)?.to_string();
+            let name = match r.fields.get("name") {
+                Some(vaultdb_core::Value::String(s)) => s.clone(),
+                _ => file_id.clone(),
+            };
+            Some((file_id, entity_type, name))
+        })
+        .collect();
 
     match matches.len() {
         0 => Err(CommandError::not_found(format!(
