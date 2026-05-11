@@ -220,7 +220,7 @@
 										built-in
 									</span>
 								</div>
-								{#if def.kind === 'select' && def.options}
+								{#if (def.kind === 'select' || def.kind === 'multi-select') && def.options}
 									<div class="mt-1 flex flex-wrap gap-1">
 										{#each def.options as opt}
 											<span class="rounded bg-white/5 px-1.5 py-0.5 text-[10px]">{opt}</span>
