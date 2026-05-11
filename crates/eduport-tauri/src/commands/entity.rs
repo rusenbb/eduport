@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use eduport_core::entity::Entity;
 use eduport_core::index::writer::{delete_entity as index_delete, upsert_entity as index_upsert};
-use eduport_core::query::{query_for_filter, EntitySummaryView, FilterInput};
+use eduport_core::query::{query_for_children, query_for_filter, EntitySummaryView, FilterInput};
 use eduport_core::EntityType;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -131,6 +131,32 @@ pub fn core_entity_list(
         .collect())
 }
 
+/// List entities whose `parent` frontmatter field equals `parent_file_id`.
+/// Cross-type — a Person can be a sub-page of a University, a Note can
+/// be a sub-page of an Application, etc. Backs the page-hierarchy
+/// "sub-pages" UI in DetailPanel.
+///
+/// Returns a flat list sorted by `name`. The frontend handles the
+/// tree shape (this is one fetch per node, lazy on expand).
+#[tauri::command]
+pub fn core_entity_children(
+    state: State<'_, EduportStateHandle>,
+    parent_file_id: String,
+) -> Result<Vec<EntityListItem>, CommandError> {
+    let st = require_state(&state)?;
+    let q = query_for_children(&parent_file_id);
+    let records = st
+        .entity_store
+        .vault()
+        .query(&q)
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
+    Ok(records
+        .iter()
+        .filter_map(EntitySummaryView::from_record)
+        .map(Into::into)
+        .collect())
+}
+
 /// Fetch a single entity by `(entity_type, file_id)`. Reads the
 /// canonical file via `EntityStore::find_by_name` (same parser as
 /// list / reconcile), assembles backlinks from vaultdb's link
@@ -176,25 +202,34 @@ pub fn core_entity_resolve(
     let st = require_state(&state)?;
     let index = st.index.lock().expect("index mutex poisoned");
     // Match against either the file_id (filename stem) or the entity
-    // name. The Python sidecar matched both via its parsers/wikilinks
-    // resolver — here we go through the index, which has both.
+    // name. Type comes from the FTS row's joined tags column —
+    // `eduport-type/<value>` is the discriminator. The bespoke
+    // `entities.type` SQL column went away when storage moved to the
+    // shared vaultdb-fts crate (which is type-agnostic on purpose).
     let mut matches: Vec<(String, String, String)> = Vec::new();
     let mut stmt = index
         .conn()
         .prepare(
-            "SELECT file_id, type, name FROM entities \
-             WHERE file_id = ?1 OR name = ?1",
+            "SELECT e.file_id, e.name, ef.tags \
+             FROM entities e \
+             JOIN entities_fts ef ON e.rowid = ef.rowid \
+             WHERE e.file_id = ?1 OR e.name = ?1",
         )
         .map_err(eduport_core::index::IndexError::from)?;
     let mut rows = stmt
         .query([&target])
         .map_err(eduport_core::index::IndexError::from)?;
     while let Some(row) = rows.next().map_err(eduport_core::index::IndexError::from)? {
-        matches.push((
-            row.get(0).map_err(eduport_core::index::IndexError::from)?,
-            row.get(1).map_err(eduport_core::index::IndexError::from)?,
-            row.get(2).map_err(eduport_core::index::IndexError::from)?,
-        ));
+        let file_id: String = row.get(0).map_err(eduport_core::index::IndexError::from)?;
+        let name: String = row.get(1).map_err(eduport_core::index::IndexError::from)?;
+        let tags: String = row.get(2).map_err(eduport_core::index::IndexError::from)?;
+        let Some(entity_type) = tags
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix("eduport-type/").map(String::from))
+        else {
+            continue;
+        };
+        matches.push((file_id, entity_type, name));
     }
     drop(rows);
     drop(stmt);

@@ -36,3 +36,11 @@ export function updateEntity(
 export function deleteEntity(type: EntityType, fileId: string): Promise<void> {
 	return coreInvoke('core_entity_delete', { entityType: type, fileId });
 }
+
+/**
+ * List entities whose `parent` frontmatter field equals `parentFileId`.
+ * Cross-type — sub-pages aren't constrained to the parent's type.
+ */
+export function entityChildren(parentFileId: string): Promise<EntityListItem[]> {
+	return coreInvoke('core_entity_children', { parentFileId });
+}

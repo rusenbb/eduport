@@ -1,106 +1,89 @@
-//! SQLite + FTS5 search/filter index for eduport-core.
+//! Thin wrapper over `vaultdb-fts` that adapts the generic crate to
+//! eduport's domain shape (typed entities, `eduport-type/<value>`
+//! tag discriminator, custom-property prose into the FTS5
+//! `custom_text` column).
 //!
-//! The index is a derived cache over the markdown vault. Every row in
-//! the database is reproducible from the on-disk entity files via
-//! [`crate::EntityStore`] and vaultdb-core's parsed records — there is
-//! no canonical state here that isn't also on disk.
+//! The bespoke SQLite + FTS5 implementation that used to live here
+//! moved into `vaultdb-fts` so other consumers can reuse it. This
+//! module is the **eduport-specific adapter** — projection closures,
+//! `SearchHit` extension (we add `entity_type` since vaultdb-fts
+//! treats type as just-another-tag), and the entity-aware upsert
+//! signature.
 //!
-//! ## Layered API
-//!
-//! Three thin layers, each independently usable:
-//!
-//! 1. [`schema::init_schema`] — apply DDL + version migrations to a
-//!    `rusqlite::Connection`. The lowest layer.
-//! 2. [`writer`] / [`reader`] — free functions taking `&Connection`
-//!    that mutate or query the index. Composing them into a single
-//!    transaction is up to the caller (the watcher batch path will
-//!    want this; one-off queries don't need it).
-//! 3. [`Index`] — a thin struct that owns a `Connection` for the
-//!    common single-process case where the caller doesn't care about
-//!    transaction composition.
-//!
-//! ## Why free functions, not just methods on [`Index`]
-//!
-//! The Python sidecar's `eduport.index` was free functions over a
-//! `sqlite3.Connection` precisely so the watcher's debounced-batch
-//! path could open a transaction and call `upsert_entity` /
-//! `delete_entity` repeatedly inside it. The Rust port preserves that
-//! affordance: the watcher (Phase 8) will use `conn.transaction()`
-//! and pass the resulting `Transaction` (which `Deref`s to `&Connection`
-//! through rusqlite's API, via `&*tx`). Putting everything on `Index`
-//! would have boxed callers into one-call-per-transaction.
+//! The legacy `Index` type alias still resolves so tauri-side call
+//! sites don't all churn at once.
 
 pub mod reader;
 pub mod reconcile;
-pub mod schema;
 pub mod writer;
 
 pub use reader::{SearchHit, search_fts};
 pub use reconcile::{ReconcileSummary, reconcile};
-pub use schema::{INDEX_SCHEMA_VERSION, InitOutcome, init_schema};
-pub use writer::{clear_parse_error, delete_entity, record_parse_error, upsert_entity};
+pub use vaultdb_fts::{FTS_SCHEMA_VERSION as INDEX_SCHEMA_VERSION, InitOutcome};
+pub use writer::{
+    clear_parse_error, delete_entity, record_parse_error, upsert_entity,
+};
 
 use rusqlite::Connection;
 use std::path::Path;
 
-/// Convenience wrapper that owns a [`Connection`] with the schema
-/// initialised. Use [`Index::conn`] / [`Index::conn_mut`] when you
-/// need to drop down to the free-function API for transaction control.
+/// Convenience wrapper that owns a [`Connection`] with the FTS5
+/// schema initialised. Thin shim over [`vaultdb_fts::FtsIndex`] —
+/// preserves the eduport-facing API while delegating storage to the
+/// shared crate.
 pub struct Index {
-    conn: Connection,
+    inner: vaultdb_fts::FtsIndex,
 }
 
 impl Index {
-    /// Open or create the index database at `path`. The parent
-    /// directory must already exist; this matches vaultdb-core's
-    /// convention of "the caller decides where things live".
     pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        // Foreign-key enforcement is off by default. We still turn
-        // it on so any future cascade declarations are honoured —
-        // the historical `entity_tags` / `properties` cascades were
-        // dropped along with their tables when filtering moved to
-        // `Vault::query`.
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-        let _ = init_schema(&conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            inner: vaultdb_fts::FtsIndex::open(path)?,
+        })
     }
 
-    /// Open an in-memory index. Used in tests and by ephemeral
-    /// reconcile flows that want a fresh index per call.
     pub fn open_in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-        let _ = init_schema(&conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            inner: vaultdb_fts::FtsIndex::open_in_memory()?,
+        })
     }
 
-    /// Borrow the underlying connection. Use this to compose multiple
-    /// writer/reader calls in a single transaction.
     pub fn conn(&self) -> &Connection {
-        &self.conn
+        self.inner.conn()
     }
 
-    /// Mutable borrow of the underlying connection. Required for
-    /// `conn.transaction()`.
     pub fn conn_mut(&mut self) -> &mut Connection {
-        &mut self.conn
+        self.inner.conn_mut()
     }
 }
 
-/// Crate-level error type for the index module. Wraps the underlying
-/// `rusqlite::Error` and the eduport-core domain error so callers
-/// don't need to thread two error types through every signature.
 #[derive(Debug, thiserror::Error)]
 pub enum IndexError {
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
 
     #[error(transparent)]
+    Vaultdb(#[from] vaultdb_core::VaultdbError),
+
+    #[error(transparent)]
     Eduport(#[from] crate::EduportError),
 
     #[error("index data error: {0}")]
     Data(String),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+impl From<vaultdb_fts::FtsError> for IndexError {
+    fn from(e: vaultdb_fts::FtsError) -> Self {
+        match e {
+            vaultdb_fts::FtsError::Sqlite(s) => IndexError::Sqlite(s),
+            vaultdb_fts::FtsError::Vault(v) => IndexError::Vaultdb(v),
+            vaultdb_fts::FtsError::Data(d) => IndexError::Data(d),
+            vaultdb_fts::FtsError::Io(io) => IndexError::Io(io),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, IndexError>;

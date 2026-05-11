@@ -56,6 +56,8 @@
 	let focusMode = $state(false);
 	let saveDialogOpen = $state(false);
 	let propertyFilters: PropertyFilters = $state(parseFilterParams(page.url.searchParams));
+	let selection: Set<string> = $state(new Set());
+	let bulkBusy = $state(false);
 
 	function syncFiltersToUrl(next: PropertyFilters) {
 		propertyFilters = next;
@@ -396,6 +398,11 @@
 				focusMode = false;
 				return;
 			}
+			if (event.key === 'Escape' && selection.size > 0 && !isTypingTarget(event.target)) {
+				event.preventDefault();
+				clearSelection();
+				return;
+			}
 			if (isTypingTarget(event.target)) return;
 
 			// Detail-panel shortcuts: only with an entity selected. Focus
@@ -548,6 +555,30 @@
 		} catch (e) {
 			toasts.error('Delete failed', e instanceof Error ? e.message : String(e));
 		}
+	}
+
+	async function bulkDelete() {
+		if (selection.size === 0) return;
+		const n = selection.size;
+		if (
+			($settings?.confirm_deletes ?? true) &&
+			!(await confirmDestructive(`Move ${n} ${type}${n === 1 ? '' : 's'} to trash?`))
+		) {
+			return;
+		}
+		bulkBusy = true;
+		const ids = Array.from(selection);
+		const results = await Promise.allSettled(ids.map((id) => deleteEntity(type, id)));
+		const failed = results.filter((r) => r.status === 'rejected').length;
+		bulkBusy = false;
+		selection = new Set();
+		await loadList();
+		if (failed === 0) toasts.success(`Moved ${n} item${n === 1 ? '' : 's'} to trash`);
+		else toasts.error(`${failed}/${n} delete${n === 1 ? '' : 's'} failed`);
+	}
+
+	function clearSelection() {
+		selection = new Set();
 	}
 
 	// Right-click context menu on list rows. Renders fixed at the
@@ -736,6 +767,29 @@
 			/>
 		{/if}
 
+		{#if selection.size > 0}
+			<div
+				class="flex items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-accent)]/10 px-4 py-2 text-xs"
+			>
+				<span class="font-medium">
+					{selection.size} selected
+				</span>
+				<button
+					class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 hover:bg-white/10 disabled:opacity-50"
+					onclick={bulkDelete}
+					disabled={bulkBusy}
+				>
+					{bulkBusy ? 'Deleting…' : `Delete ${selection.size}`}
+				</button>
+				<button
+					class="rounded border border-[var(--color-border)] bg-white/5 px-2 py-1 hover:bg-white/10"
+					onclick={clearSelection}
+				>
+					Clear (Esc)
+				</button>
+			</div>
+		{/if}
+
 		<div class="min-h-0 flex-1 overflow-auto">
 			{#if loading}
 				<EntityListSkeleton />
@@ -793,6 +847,8 @@
 					{type}
 					{selectedFileId}
 					{details}
+					{selection}
+					onSelectionChange={(next) => (selection = next)}
 					onContextMenu={openContextMenu}
 					filtersActive={anyFilterActive}
 					onClearFilters={clearAllFilters}

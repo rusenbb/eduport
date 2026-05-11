@@ -154,6 +154,32 @@ pub fn query_for_filter(entity_type: EntityType, filters: &FilterInput<'_>) -> Q
     }
 }
 
+/// Build a vaultdb [`Query`] that finds every entity whose `parent`
+/// frontmatter field equals `parent_file_id`. Cross-type — does
+/// **not** pin by `eduport-type/<value>`. Used by the page-hierarchy
+/// "sub-pages" UI: a Person can be a sub-page of a University, a
+/// Note can be a sub-page of an Application, etc.
+///
+/// Scans the vault root non-recursively, same as the type-pinned
+/// query. Subfolders (`notes/`, `attachments/`) are user space and
+/// aren't entity-shaped — they're correctly ignored.
+pub fn query_for_children(parent_file_id: &str) -> Query {
+    Query {
+        folder: String::new(),
+        filter: Some(Expr::Predicate(Predicate::Equals {
+            field: "parent".into(),
+            value: Value::String(parent_file_id.to_string()),
+        })),
+        select: None,
+        sort: Some(SortKey {
+            field: "name".into(),
+            descending: false,
+        }),
+        limit: None,
+        recursive: false,
+    }
+}
+
 /// One row in the entity-list view, derived from a vaultdb [`Record`].
 /// Shaped to match the frontend's `EntityListItem`.
 #[derive(Debug, Clone)]

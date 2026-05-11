@@ -1,12 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { getEntity, listEntities, updateEntity } from '$lib/api/entities';
+	import {
+		entityChildren,
+		getEntity,
+		listEntities,
+		resolveEntity,
+		updateEntity
+	} from '$lib/api/entities';
 	import { schemaStore } from '$lib/stores/schema';
 	import { settings } from '$lib/stores/settings';
 	import { toasts } from '$lib/stores/toasts';
 	import { cloneFileToFolder, openInObsidian, openPath, revealInFileManager, saveCopyAs } from '$lib/tauri';
-	import type { EntityDetail } from '$lib/types';
+	import type { EntityDetail, EntityListItem, EntityType } from '$lib/types';
 	import { onMount } from 'svelte';
+	import { extractIcon, extractCover } from '$lib/entities/cosmetics';
 	import DetailField from './DetailField.svelte';
 	import BodyView from './BodyView.svelte';
 	import PropertyConfigDialog from './properties/PropertyConfigDialog.svelte';
@@ -33,6 +40,66 @@
 
 	const isDocument = $derived(detail.type === 'document');
 	const filePath = $derived(detail.entity.file as string | undefined);
+	const icon = $derived(extractIcon(detail));
+	const cover = $derived(extractCover(detail));
+
+	// Hierarchy: breadcrumb walks up via `entity.parent` (resolved by
+	// file_id, not name — anchors are stable across renames). Sub-pages
+	// are entities whose `parent` field equals our file_id.
+	type Crumb = { file_id: string; type: EntityType; name: string };
+	let ancestors: Crumb[] = $state([]);
+	let ancestorCycle = $state(false);
+	let children: EntityListItem[] = $state([]);
+
+	async function loadHierarchy() {
+		ancestors = [];
+		ancestorCycle = false;
+		children = [];
+
+		// Walk up. Limit to 16 hops so a runaway never burns the UI.
+		const seen = new Set<string>([detail.file_id]);
+		const chain: Crumb[] = [];
+		const initial = (detail.entity as { parent?: unknown }).parent;
+		let cursor: string | undefined = typeof initial === 'string' ? initial : undefined;
+		let depth = 0;
+		while (cursor && depth < 16) {
+			const here: string = cursor;
+			if (seen.has(here)) {
+				ancestorCycle = true;
+				break;
+			}
+			seen.add(here);
+			depth++;
+			try {
+				const resolved = await resolveEntity(here);
+				chain.unshift({
+					file_id: resolved.file_id,
+					type: resolved.type,
+					name: resolved.name
+				});
+				const fetched = await getEntity(resolved.type, resolved.file_id);
+				const next = (fetched.entity as { parent?: unknown }).parent;
+				cursor = typeof next === 'string' ? next : undefined;
+			} catch {
+				// Unresolved parent — surface as a dangling crumb.
+				chain.unshift({ file_id: here, type: 'note', name: here });
+				break;
+			}
+		}
+		ancestors = chain;
+
+		try {
+			children = await entityChildren(detail.file_id);
+		} catch {
+			children = [];
+		}
+	}
+
+	$effect(() => {
+		// Re-run whenever the open entity changes.
+		const _ = detail.file_id;
+		void loadHierarchy();
+	});
 	let relatedEmails: EntityDetail[] = $state([]);
 	let threadInReplyTo: EntityDetail | null = $state(null);
 	let threadReplies: EntityDetail[] = $state([]);
@@ -317,7 +384,35 @@
 </script>
 
 <div class="flex h-full w-full flex-col overflow-auto bg-[var(--color-panel)]">
+	{#if cover}
+		<div
+			class="h-32 w-full border-b border-[var(--color-border)] bg-cover bg-center"
+			style="background-image: url('{cover}')"
+			aria-hidden="true"
+		></div>
+	{/if}
+	{#if ancestors.length > 0 || ancestorCycle}
+		<nav
+			class="flex flex-wrap items-center gap-1 border-b border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]"
+			aria-label="Page hierarchy"
+		>
+			{#each ancestors as crumb (crumb.file_id)}
+				<a
+					class="rounded px-1 hover:bg-white/5 hover:text-[var(--color-text)]"
+					href="/{crumb.type}/{crumb.file_id}"
+				>{crumb.name}</a>
+				<span aria-hidden="true">/</span>
+			{/each}
+			<span class="text-[var(--color-text)]">{detail.entity.name as string}</span>
+			{#if ancestorCycle}
+				<span class="ml-2 rounded bg-[var(--color-bad)]/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-bad)]">cycle</span>
+			{/if}
+		</nav>
+	{/if}
 	<header class="flex items-start gap-3 border-b border-[var(--color-border)] p-4">
+		{#if icon}
+			<span class="text-3xl leading-none" aria-hidden="true">{icon}</span>
+		{/if}
 		<div class="min-w-0 flex-1">
 			<h2 class="truncate text-lg font-semibold">{detail.entity.name as string}</h2>
 			<code class="mt-1 block truncate text-xs text-[var(--color-muted)]">{detail.file_id}</code>
@@ -569,6 +664,27 @@
 					>
 						{bl.name ?? bl.src_file_id} <span class="text-[var(--color-muted)]">· {bl.field}</span>
 					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	{#if children.length > 0}
+		<div class="border-t border-[var(--color-border)] px-4 py-3">
+			<h3 class="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+				Sub-pages ({children.length})
+			</h3>
+			<div class="flex flex-col gap-1">
+				{#each children as child (child.file_id)}
+					<a
+						class="flex items-center justify-between gap-2 rounded px-2 py-1 text-sm hover:bg-white/5"
+						href="/{child.type}/{child.file_id}"
+					>
+						<span class="truncate">{child.name}</span>
+						<span class="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+							{child.type}
+						</span>
+					</a>
 				{/each}
 			</div>
 		</div>
