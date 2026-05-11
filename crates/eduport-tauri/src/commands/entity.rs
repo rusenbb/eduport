@@ -30,7 +30,7 @@ use crate::core_state::{EduportState, EduportStateHandle};
 
 /// One row in the entity-list view. Field-for-field compatible with
 /// the frontend's `EntityListItem`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct EntityListItem {
     pub file_id: String,
     #[serde(rename = "type")]
@@ -50,7 +50,7 @@ impl From<EntitySummaryView> for EntityListItem {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct Backlink {
     pub src_file_id: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -59,7 +59,7 @@ pub struct Backlink {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct EntityDetail {
     pub file_id: String,
     #[serde(rename = "type")]
@@ -73,12 +73,12 @@ pub struct EntityDetail {
     pub backlinks: Vec<Backlink>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct CreateResult {
     pub file_id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ResolveResult {
     pub file_id: String,
     #[serde(rename = "type")]
@@ -92,6 +92,7 @@ pub struct ResolveResult {
 /// `Predicate::Contains { field: "tags", ... }` clause, pinned by
 /// the `eduport-type/<value>` discriminator. No SQLite cache lookup.
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_list(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -133,6 +134,7 @@ pub fn core_entity_list(
 /// Returns a flat list sorted by `name`. The frontend handles the
 /// tree shape (this is one fetch per node, lazy on expand).
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_children(
     state: State<'_, EduportStateHandle>,
     parent_file_id: String,
@@ -156,6 +158,7 @@ pub fn core_entity_children(
 /// list / reconcile), assembles backlinks from vaultdb's link
 /// graph, and emits the full detail payload.
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_get(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -189,6 +192,7 @@ pub fn core_entity_get(
 /// Errors if the target is ambiguous (matches more than one) or
 /// missing. Mirrors the sidecar's `/entities/resolve/{target}`.
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_resolve(
     state: State<'_, EduportStateHandle>,
     target: String,
@@ -259,6 +263,7 @@ pub fn core_entity_resolve(
 /// YAML and parse it as an `Entity`. The file's body is whatever
 /// `body` carries.
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_create(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -286,6 +291,7 @@ pub fn core_entity_create(
 /// Update an existing entity (PATCH semantics — the full new
 /// frontmatter and body replace the previous ones).
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_update(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -311,6 +317,7 @@ pub fn core_entity_update(
 /// it outright (collision-safe). The trash commands (Phase 9.5)
 /// expose list/restore/empty.
 #[tauri::command]
+#[specta::specta]
 pub fn core_entity_delete(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,

@@ -24,7 +24,7 @@ impl From<ViewStoreError> for CommandError {
 /// Create-view body. Same shape the frontend's `CreateViewBody`
 /// sends. `kind`/`sort_dir` use the same `lowercase` variants the
 /// types crate exposes; absent fields take struct defaults.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, specta::Type)]
 pub struct CreateViewBody {
     pub name: String,
     #[serde(default)]
@@ -43,7 +43,7 @@ pub struct CreateViewBody {
     pub card_properties: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 pub struct UpdateViewBody {
     pub name: String,
     pub kind: ViewKind,
@@ -58,19 +58,21 @@ pub struct UpdateViewBody {
     pub card_properties: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ViewMutationResult {
     pub view: View,
     pub type_views: TypeViews,
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_get_all(state: State<'_, EduportStateHandle>) -> Result<ViewsFile, CommandError> {
     let st = require_state(&state)?;
     Ok(st.view_store.current()?)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_get_for_type(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -81,6 +83,7 @@ pub fn core_view_get_for_type(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_create(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -108,6 +111,7 @@ pub fn core_view_create(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_update(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -135,6 +139,7 @@ pub fn core_view_update(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_delete(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,
@@ -146,6 +151,7 @@ pub fn core_view_delete(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_view_reorder(
     state: State<'_, EduportStateHandle>,
     entity_type: EntityType,

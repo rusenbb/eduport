@@ -1,5 +1,6 @@
-import { coreInvoke } from './client';
+import { commands } from '../bindings';
 import type { ParsedEml } from '../types';
+import { unwrap } from './client';
 
 /**
  * Send the raw .eml bytes through the Tauri command channel. Tauri
@@ -13,5 +14,5 @@ export async function parseEml(
 ): Promise<ParsedEml> {
 	const buf = await file.arrayBuffer();
 	const bytes = Array.from(new Uint8Array(buf));
-	return coreInvoke('core_parse_eml', { bytes });
+	return unwrap(commands.coreParseEml(bytes)) as Promise<ParsedEml>;
 }

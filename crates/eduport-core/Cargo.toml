@@ -40,6 +40,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # can deliver hundreds of events per second on initial sync).
 notify = "8.2"
 notify-debouncer-full = "0.6"
+# specta::Type derive on the public types eduport-core exposes
+# (EntityType, Property, View, Settings, …). Used by the eduport-tauri
+# shell to generate the frontend's TypeScript bindings via
+# tauri-specta. No runtime cost — pure compile-time codegen.
+specta = { version = "2.0.0-rc.22", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"

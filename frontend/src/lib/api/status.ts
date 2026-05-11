@@ -1,10 +1,11 @@
-import { coreInvoke } from './client';
+import { commands } from '../bindings';
 import type { AppStatus, ParseErrorItem } from '../types';
+import { unwrap } from './client';
 
 export function getAppStatus(): Promise<AppStatus> {
-	return coreInvoke('core_get_status');
+	return unwrap(commands.coreGetStatus()) as Promise<AppStatus>;
 }
 
 export function listParseErrors(): Promise<ParseErrorItem[]> {
-	return coreInvoke('core_list_parse_errors');
+	return unwrap(commands.coreListParseErrors());
 }

@@ -17,7 +17,7 @@ use crate::core_state::{self, EduportStateHandle};
 /// Frontend-shaped settings DTO. The frontend uses string types
 /// for everything (it doesn't know `PathBuf`), so we accept/return
 /// strings here and convert at the boundary.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct SettingsDto {
     pub data_folder: String,
     pub attachments_folder: String,
@@ -87,6 +87,7 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, CommandError> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_settings_get(app: AppHandle) -> Result<SettingsDto, CommandError> {
     let path = settings_path(&app)?;
     let settings = load_settings(&path)
@@ -109,6 +110,7 @@ pub fn core_settings_get(app: AppHandle) -> Result<SettingsDto, CommandError> {
 /// reboot is cheap (drop watcher → open new index → reconcile;
 /// sub-second on a vault under our scale targets).
 #[tauri::command]
+#[specta::specta]
 pub fn core_settings_put(
     app: AppHandle,
     state: State<'_, EduportStateHandle>,

@@ -20,14 +20,14 @@ use tauri::State;
 use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 pub struct CheckboxToggleBody {
     pub file_id: String,
     pub line: usize,
     pub checked: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ToggleResult {
     pub ok: bool,
 }
@@ -40,6 +40,7 @@ pub struct ToggleResult {
 /// returned not_found for every toggle), rewrite the body in place,
 /// and refresh the index synchronously.
 #[tauri::command]
+#[specta::specta]
 pub fn core_checkbox_toggle(
     state: State<'_, EduportStateHandle>,
     body: CheckboxToggleBody,

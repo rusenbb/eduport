@@ -12,7 +12,7 @@ use crate::EntityType;
 
 /// Restricted set of UI tints for select-option chips. Keep this list in
 /// sync with the frontend's option-colour palette.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum OptionColor {
     #[default]
@@ -28,7 +28,7 @@ pub enum OptionColor {
 }
 
 /// One option in a single-select / multi-select property's option list.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct SelectOption {
     pub value: String,
@@ -71,7 +71,7 @@ pub fn validate_option_value(value: &str) -> Result<(), String> {
 
 /// Tag identifying which property variant we have. Mirrors the
 /// `type` field in the YAML wire format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum PropertyKind {
     Text,
@@ -103,7 +103,7 @@ impl PropertyKind {
 
 /// A user-declared property on an entity type. Tagged enum: the `type`
 /// field on the YAML side picks which variant to deserialise.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Property {
     Text(TextProperty),
@@ -123,7 +123,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct TextProperty {
     pub key: String,
@@ -138,7 +138,7 @@ pub struct TextProperty {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct NumberProperty {
     pub key: String,
@@ -155,7 +155,7 @@ pub struct NumberProperty {
     pub default: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct DateProperty {
     pub key: String,
@@ -172,7 +172,7 @@ pub struct DateProperty {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct CheckboxProperty {
     pub key: String,
@@ -187,7 +187,7 @@ pub struct CheckboxProperty {
     pub default: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct SingleSelectProperty {
     pub key: String,
@@ -204,7 +204,7 @@ pub struct SingleSelectProperty {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct MultiSelectProperty {
     pub key: String,
@@ -221,7 +221,7 @@ pub struct MultiSelectProperty {
     pub default: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct UrlProperty {
     pub key: String,
@@ -236,7 +236,7 @@ pub struct UrlProperty {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct RelationProperty {
     pub key: String,

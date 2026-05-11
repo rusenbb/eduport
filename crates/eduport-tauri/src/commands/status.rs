@@ -18,21 +18,24 @@ use vaultdb_core::{Query, Value};
 use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct AppStatus {
+    /// Always `"ok"` today — `&'static str` for zero-alloc; surfaces
+    /// as `string` over IPC.
+    #[specta(type = String)]
     pub status: &'static str,
     pub parse_errors: i64,
     pub entities: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ParseErrorItem {
     pub path: String,
     pub message: String,
     pub occurred_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct TagCount {
     pub tag: String,
     pub count: i64,
@@ -41,6 +44,7 @@ pub struct TagCount {
 /// Whole-app health check. Returns counts the frontend uses to show
 /// "N entities, M parse errors" in the status bar.
 #[tauri::command]
+#[specta::specta]
 pub fn core_get_status(state: State<'_, EduportStateHandle>) -> Result<AppStatus, CommandError> {
     let st = require_state(&state)?;
     let records = root_records(&st)?;
@@ -62,6 +66,7 @@ pub fn core_get_status(state: State<'_, EduportStateHandle>) -> Result<AppStatus
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn core_list_parse_errors(
     state: State<'_, EduportStateHandle>,
 ) -> Result<Vec<ParseErrorItem>, CommandError> {
@@ -97,6 +102,7 @@ pub fn core_list_parse_errors(
 /// the `eduport-type/<value>` discriminator tag — one query, no FTS
 /// dependency.
 #[tauri::command]
+#[specta::specta]
 pub fn core_get_counts(
     state: State<'_, EduportStateHandle>,
 ) -> Result<BTreeMap<String, i64>, CommandError> {
@@ -126,6 +132,7 @@ pub fn core_get_counts(
 /// discriminator tags (`eduport-type/...` and `eduport-doctype/...`)
 /// are suppressed.
 #[tauri::command]
+#[specta::specta]
 pub fn core_get_tags(state: State<'_, EduportStateHandle>) -> Result<Vec<TagCount>, CommandError> {
     let st = require_state(&state)?;
     let records = root_records(&st)?;

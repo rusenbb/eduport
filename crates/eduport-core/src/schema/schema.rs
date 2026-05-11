@@ -13,7 +13,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 
 /// A single entity type's collection of user-declared properties.
 /// Property keys must be unique within this collection.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct EntitySchema {
     #[serde(default)]
@@ -44,7 +44,7 @@ impl EntitySchema {
 /// The full user-managed schema. Every [`EntityType`] must have an
 /// entry — [`empty_schema`] seeds with all eight types and no
 /// properties.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct Schema {
     #[serde(default = "default_version")]

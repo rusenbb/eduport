@@ -10,7 +10,7 @@ use crate::core_state::EduportStateHandle;
 /// Search hit DTO. Same field set as the Python sidecar's response,
 /// with `type` instead of Rust's reserved `entity_type` so the
 /// frontend's existing parser doesn't need a rename.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct SearchHitDto {
     pub file_id: String,
     #[serde(rename = "type")]
@@ -36,6 +36,7 @@ impl From<SearchHit> for SearchHitDto {
 /// match the frontend's behaviour and avoid a malformed-MATCH
 /// error from FTS5 on empty input.
 #[tauri::command]
+#[specta::specta]
 pub fn core_search(
     state: State<'_, EduportStateHandle>,
     q: String,

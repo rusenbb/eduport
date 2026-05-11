@@ -1,10 +1,11 @@
-import { coreInvoke } from './client';
+import { commands, type SettingsDto } from '../bindings';
 import type { Settings } from '../types';
+import { unwrap } from './client';
 
 export function getSettings(): Promise<Settings> {
-	return coreInvoke('core_settings_get');
+	return unwrap(commands.coreSettingsGet()) as Promise<Settings>;
 }
 
 export function putSettings(settings: Settings): Promise<Settings> {
-	return coreInvoke('core_settings_put', { settings });
+	return unwrap(commands.coreSettingsPut(settings as unknown as SettingsDto)) as Promise<Settings>;
 }

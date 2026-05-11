@@ -10,7 +10,7 @@ use crate::view::filter_tree::FilterTree;
 
 pub const VIEWS_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ViewKind {
     #[default]
@@ -19,7 +19,7 @@ pub enum ViewKind {
     Board,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum SortDir {
     #[default]
@@ -34,7 +34,7 @@ fn id_re() -> &'static regex::Regex {
 
 /// Frontend-shaped property filter — mirrors the request body of the
 /// (legacy) `/api/properties/filter` endpoint.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct ViewFilter {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -47,7 +47,7 @@ pub struct ViewFilter {
     pub date: BTreeMap<String, (Option<String>, Option<String>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct View {
     pub id: String,
@@ -100,7 +100,7 @@ impl View {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct TypeViews {
     #[serde(default)]
@@ -124,7 +124,7 @@ impl TypeViews {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub struct ViewsFile {
     #[serde(default = "default_version")]

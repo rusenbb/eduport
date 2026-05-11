@@ -1,14 +1,17 @@
 // Single source of truth for the API transport.
 //
-// Every `api/*.ts` module routes through `coreInvoke()` (Tauri
-// command channel). The HTTP-fetch path that used to talk to the
-// Python sidecar was removed in rewrite phase 11; outside Tauri
-// (the SvelteKit dev server, vitest), `coreInvoke` throws — the
-// dev server is expected to point at a Tauri build for any test
-// that exercises the API.
+// Every `api/*.ts` module dispatches through the typed `commands`
+// namespace generated from the Rust side by tauri-specta (see
+// `frontend/src/lib/bindings.ts` and the Rust `lib.rs` test that
+// regenerates it). The transport itself goes through the Tauri
+// command channel; outside Tauri (the SvelteKit dev server,
+// vitest), the underlying `invoke` throws — the dev server is
+// expected to point at a Tauri build for any test that exercises
+// the API.
 
-import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
+
+import type { CommandError, Result } from '../bindings';
 
 declare global {
 	interface Window {
@@ -44,32 +47,32 @@ export function isTauri(): boolean {
 }
 
 /**
- * Invoke a Tauri command exposed by `eduport-tauri`. Wraps the raw
- * `invoke` call so callers see a typed return value plus a typed
- * error class.
+ * Unwrap a `Result<T, E>` returned by a tauri-specta-generated
+ * command. On `status: "ok"` returns the data; on `status: "error"`
+ * throws a [`CoreCommandError`] carrying the structured `code` so
+ * callers can branch on the error class without parsing prose.
  *
- * Tauri sends Rust panics back as plain strings; structured errors
- * come back as JSON of `CommandErrorPayload`. We branch on the
- * shape so panic messages still surface usefully without a
- * `code` field crash.
+ * `E` is typically `CommandError` (the Rust-side struct that derives
+ * `specta::Type`) but a handful of host-shell commands return
+ * `string` instead — that branch folds into an `internal`-coded
+ * `CoreCommandError` so the rest of the frontend sees one error
+ * type everywhere.
  */
-export async function coreInvoke<T = unknown>(
-	command: string,
-	args: Record<string, unknown> = {}
+export async function unwrap<T, E = CommandError>(
+	call: Promise<Result<T, E>>
 ): Promise<T> {
-	try {
-		return (await tauriInvoke(command, args)) as T;
-	} catch (raw) {
-		if (raw && typeof raw === 'object' && 'code' in raw && 'message' in raw) {
-			throw new CoreCommandError(raw as CommandErrorPayload);
-		}
-		// String / unknown shape: fold into an internal-coded
-		// CommandError so all rejections share one type.
-		throw new CoreCommandError({
-			code: 'internal',
-			message: typeof raw === 'string' ? raw : String(raw)
-		});
+	const result = await call;
+	if (result.status === 'ok') {
+		return result.data;
 	}
+	const err = result.error;
+	if (err && typeof err === 'object' && 'code' in err && 'message' in err) {
+		throw new CoreCommandError(err as CommandErrorPayload);
+	}
+	throw new CoreCommandError({
+		code: 'internal',
+		message: typeof err === 'string' ? err : String(err)
+	});
 }
 
 /**
