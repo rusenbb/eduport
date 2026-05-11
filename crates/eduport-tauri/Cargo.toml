@@ -5,8 +5,8 @@ version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-edition = "2021"
-rust-version = "1.77.2"
+edition = "2024"
+rust-version = "1.85"
 
 # The lib name stays `eduport_lib` because main.rs and Tauri's bundle
 # pipeline both reference it. The package name stays `eduport` for the
