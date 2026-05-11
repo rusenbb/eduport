@@ -162,6 +162,7 @@ mod tests {
                 name: "Summary".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             })];
 

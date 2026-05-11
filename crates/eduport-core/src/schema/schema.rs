@@ -87,7 +87,10 @@ impl Schema {
     }
 }
 
-/// Seed schema: every entity type with an empty property list.
+/// Schema with no properties at all — every entity type gets an empty
+/// property list. Used by tests that need to start from a clean slate.
+/// Production code wants [`default_schema`] (which includes the
+/// system-seeded built-ins).
 pub fn empty_schema() -> Schema {
     let types = EntityType::ALL
         .into_iter()
@@ -96,6 +99,40 @@ pub fn empty_schema() -> Schema {
     Schema {
         version: SCHEMA_VERSION,
         types,
+    }
+}
+
+/// Schema seeded with the system-defined built-in properties for each
+/// entity type. This is what fresh vaults get on first load — the
+/// built-ins ship with curated option lists (countries, languages,
+/// roles, etc.) and the user can extend them through the regular
+/// schema editing surface, just like custom properties.
+pub fn default_schema() -> Schema {
+    let mut s = empty_schema();
+    s.merge_in_builtins();
+    s
+}
+
+impl Schema {
+    /// Add any missing built-in properties to every entity type's
+    /// schema entry, preserving user-edited copies of built-ins that
+    /// already exist (the user may have added options or renamed the
+    /// label). Run on every load so adopting a new built-in field
+    /// later doesn't require a manual migration.
+    pub fn merge_in_builtins(&mut self) {
+        for t in EntityType::ALL {
+            let entry = self.types.entry(t).or_default();
+            let existing_keys: std::collections::HashSet<String> = entry
+                .properties
+                .iter()
+                .map(|p| p.key().to_string())
+                .collect();
+            for builtin in crate::schema::builtins::seeded_builtins(t) {
+                if !existing_keys.contains(builtin.key()) {
+                    entry.properties.push(builtin);
+                }
+            }
+        }
     }
 }
 
@@ -137,6 +174,7 @@ mod tests {
             name: "Summary".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         };
         s.types.get_mut(&EntityType::Note).unwrap().properties =
@@ -153,6 +191,7 @@ mod tests {
                 name: "Summary".into(),
                 description: Some("a one-liner".into()),
                 required: false,
+                is_builtin: false,
                 default: None,
             })];
         let yaml = serde_yaml::to_string(&s).unwrap();
@@ -169,6 +208,7 @@ mod tests {
                 name: "Summary".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             })],
         };

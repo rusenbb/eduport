@@ -38,6 +38,11 @@ interface PropertyBase {
 	name: string;
 	description?: string | null;
 	required?: boolean;
+	/** True for system-seeded properties (country, role, status, …)
+	 * that ship with eduport. Built-ins cannot be deleted and their
+	 * `type` is immutable, but their option lists, name, and
+	 * description can be edited like any user-defined property. */
+	is_builtin?: boolean;
 }
 
 export interface TextProperty extends PropertyBase {

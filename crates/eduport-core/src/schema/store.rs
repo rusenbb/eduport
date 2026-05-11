@@ -31,7 +31,7 @@ use std::sync::Mutex;
 use crate::EduportError;
 use crate::EntityType;
 use crate::schema::property::{Property, SelectOption};
-use crate::schema::schema::{Schema, empty_schema};
+use crate::schema::schema::{Schema, default_schema};
 
 /// The hidden subdirectory that holds eduport's per-vault metadata
 /// (schema, views, settings overrides, FTS5 index file).
@@ -127,14 +127,19 @@ impl SchemaStore {
     }
 
     /// Add a new property to `entity_type`. Errors if the key collides
-    /// with an existing custom property (built-in field collision is
-    /// the caller's responsibility — the entity-type registry will
-    /// expose `is_builtin_key` once Phase 6 lands).
+    /// with an existing property (built-in or user-defined). New
+    /// properties land at the end of the list and are *not* marked as
+    /// built-in — the only path to a built-in property is through the
+    /// system seed in [`crate::schema::builtins::seeded_builtins`].
     pub fn add_property(
         &self,
         entity_type: EntityType,
-        prop: Property,
+        mut prop: Property,
     ) -> Result<Schema, SchemaStoreError> {
+        // Defence in depth: don't let a caller smuggle in
+        // is_builtin=true via a hand-crafted Property. Built-ins come
+        // from the seed module exclusively.
+        force_clear_builtin(&mut prop);
         prop.validate().map_err(SchemaStoreError::Invalid)?;
         let mut guard = self.inner.lock().expect("SchemaStore mutex poisoned");
         let mut schema = match &*guard {
@@ -221,6 +226,11 @@ impl SchemaStore {
     /// Remove a property from the schema. Existing entity values for
     /// that key become "orphaned" — they remain on disk but the schema
     /// no longer recognises them.
+    ///
+    /// Built-in properties cannot be deleted: they're system-seeded
+    /// fields that the typed entity structs depend on. Attempting to
+    /// delete one returns [`SchemaStoreError::Invalid`] so the
+    /// frontend can surface a clear "Built-in field" message.
     pub fn delete_property(
         &self,
         entity_type: EntityType,
@@ -232,6 +242,14 @@ impl SchemaStore {
             None => self.load_locked()?,
         };
         let es = schema.types.entry(entity_type).or_default();
+        if let Some(p) = es.property(key)
+            && p.is_builtin()
+        {
+            return Err(SchemaStoreError::Invalid(format!(
+                "property {:?} is a built-in on {} and cannot be deleted",
+                key, entity_type
+            )));
+        }
         let before = es.properties.len();
         es.properties.retain(|p| p.key() != key);
         if es.properties.len() == before {
@@ -250,13 +268,28 @@ impl SchemaStore {
     fn load_locked(&self) -> Result<Schema, EduportError> {
         let path = self.schema_path();
         if !path.exists() {
-            let seeded = empty_schema();
+            // Fresh vault — seed with system built-ins (countries,
+            // languages, role ladder, etc.) so the user immediately
+            // sees curated dropdowns instead of empty selects.
+            let seeded = default_schema();
             self.save_locked(&seeded)?;
             return Ok(seeded);
         }
         let text = std::fs::read_to_string(&path).map_err(EduportError::Io)?;
-        let schema: Schema = serde_yaml::from_str(&text)
+        let mut schema: Schema = serde_yaml::from_str(&text)
             .map_err(|e| EduportError::Schema(format!("schema.yaml: {}", e)))?;
+        // Merge in any built-ins missing from the on-disk schema.
+        // This makes adopting a new built-in field a no-migration
+        // change — old vaults pick it up on the next load. Existing
+        // user-edited copies of built-ins (renamed, extra options) are
+        // preserved by `merge_in_builtins`.
+        let before = property_count(&schema);
+        schema.merge_in_builtins();
+        let after = property_count(&schema);
+        if after != before {
+            // Persist so the on-disk file reflects the merged shape.
+            self.save_locked(&schema)?;
+        }
         schema.validate().map_err(EduportError::Schema)?;
         Ok(schema)
     }
@@ -270,9 +303,32 @@ impl SchemaStore {
     }
 }
 
+/// Total property count across all entity types — used to decide
+/// whether a freshly-merged-in built-in necessitates a re-save.
+fn property_count(schema: &Schema) -> usize {
+    schema.types.values().map(|es| es.properties.len()).sum()
+}
+
+/// Force-clear `is_builtin` on a property the user is trying to add.
+/// Built-in status is bestowed exclusively by the system seed in
+/// [`crate::schema::builtins::seeded_builtins`]; user-driven
+/// `add_property` calls cannot create a built-in.
+fn force_clear_builtin(prop: &mut Property) {
+    match prop {
+        Property::Text(p) => p.is_builtin = false,
+        Property::Number(p) => p.is_builtin = false,
+        Property::Date(p) => p.is_builtin = false,
+        Property::Checkbox(p) => p.is_builtin = false,
+        Property::SingleSelect(p) => p.is_builtin = false,
+        Property::MultiSelect(p) => p.is_builtin = false,
+        Property::Url(p) => p.is_builtin = false,
+        Property::Relation(p) => p.is_builtin = false,
+    }
+}
+
 /// Apply a `PatchableFields` to an existing property, type-by-type.
-/// The `key` and `type` are immutable; everything else flows through
-/// per the variant's allowed fields.
+/// The `key`, `type`, and `is_builtin` flag are immutable; everything
+/// else flows through per the variant's allowed fields.
 fn apply_patch(prop: Property, patch: PatchableFields) -> Result<Property, SchemaStoreError> {
     Ok(match prop {
         Property::Text(mut p) => {
@@ -403,6 +459,7 @@ mod tests {
             name: "Summary".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         });
         let after = s.add_property(EntityType::Note, prop.clone()).unwrap();
@@ -426,6 +483,7 @@ mod tests {
             name: "Summary".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         });
         s.add_property(EntityType::Note, p.clone()).unwrap();
@@ -444,6 +502,7 @@ mod tests {
             name: "n".into(),
             description: None,
             required: false,
+            is_builtin: false,
             default: None,
         });
         assert!(matches!(
@@ -464,6 +523,7 @@ mod tests {
                 name: "Summary".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             }),
         )
@@ -501,6 +561,7 @@ mod tests {
                 name: "Summary".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             }),
         )
@@ -530,6 +591,7 @@ mod tests {
                 name: "Rating".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 unit: None,
                 default: None,
             }),
@@ -565,6 +627,7 @@ mod tests {
                     name: k.into(),
                     description: None,
                     required: false,
+                    is_builtin: false,
                     default: None,
                 }),
             )
@@ -594,6 +657,7 @@ mod tests {
                 name: "A".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             }),
         )
@@ -614,6 +678,7 @@ mod tests {
                 name: "Summary".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 default: None,
             }),
         )
@@ -636,22 +701,25 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = store(&dir);
         s.load().unwrap();
+        // Use a custom (non-builtin) key on Note since the seeded
+        // built-ins now own most familiar names like `status`.
         s.add_property(
-            EntityType::Application,
+            EntityType::Note,
             Property::SingleSelect(SingleSelectProperty {
-                key: "status".into(),
-                name: "Status".into(),
+                key: "priority".into(),
+                name: "Priority".into(),
                 description: None,
                 required: false,
+                is_builtin: false,
                 options: vec![
                     crate::schema::property::SelectOption {
-                        value: "draft".into(),
-                        label: "Draft".into(),
+                        value: "low".into(),
+                        label: "Low".into(),
                         color: crate::schema::property::OptionColor::Gray,
                     },
                     crate::schema::property::SelectOption {
-                        value: "submitted".into(),
-                        label: "Submitted".into(),
+                        value: "medium".into(),
+                        label: "Medium".into(),
                         color: crate::schema::property::OptionColor::Blue,
                     },
                 ],
@@ -663,38 +731,122 @@ mod tests {
         // Patch options to add a new colour for one of them.
         let new_options = vec![
             crate::schema::property::SelectOption {
-                value: "draft".into(),
-                label: "Draft".into(),
+                value: "low".into(),
+                label: "Low".into(),
                 color: crate::schema::property::OptionColor::Gray,
             },
             crate::schema::property::SelectOption {
-                value: "submitted".into(),
-                label: "Submitted".into(),
+                value: "medium".into(),
+                label: "Medium".into(),
                 color: crate::schema::property::OptionColor::Green, // changed
             },
             crate::schema::property::SelectOption {
-                value: "accepted".into(),
-                label: "Accepted".into(),
+                value: "high".into(),
+                label: "High".into(),
                 color: crate::schema::property::OptionColor::Purple,
             },
         ];
         let after = s
             .patch_property(
-                EntityType::Application,
-                "status",
+                EntityType::Note,
+                "priority",
                 PatchableFields {
                     options: Some(new_options.clone()),
                     ..Default::default()
                 },
             )
             .unwrap();
-        let p = after
-            .for_type(EntityType::Application)
-            .property("status")
-            .unwrap();
+        let p = after.for_type(EntityType::Note).property("priority").unwrap();
         match p {
             Property::SingleSelect(ssp) => {
                 assert_eq!(ssp.options, new_options);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn fresh_load_seeds_built_ins() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        let schema = s.load().unwrap();
+        // University seed includes country, city, website.
+        let uni = schema.for_type(EntityType::University);
+        assert!(uni.property("country").is_some());
+        assert!(uni.property("country").unwrap().is_builtin());
+        // Person seed includes role as single-select.
+        let person = schema.for_type(EntityType::Person);
+        let role = person.property("role").unwrap();
+        assert!(role.is_builtin());
+        assert!(matches!(role.kind(), crate::schema::PropertyKind::SingleSelect));
+    }
+
+    #[test]
+    fn delete_property_rejects_built_ins() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        s.load().unwrap();
+        let result = s.delete_property(EntityType::University, "country");
+        assert!(matches!(result, Err(SchemaStoreError::Invalid(_))));
+    }
+
+    #[test]
+    fn add_property_force_clears_is_builtin_flag() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        s.load().unwrap();
+        // Caller tries to smuggle in is_builtin=true; we must drop it.
+        let after = s
+            .add_property(
+                EntityType::Note,
+                Property::Text(TextProperty {
+                    key: "smuggled".into(),
+                    name: "Smuggled".into(),
+                    description: None,
+                    required: false,
+                    is_builtin: true,
+                    default: None,
+                }),
+            )
+            .unwrap();
+        let p = after.for_type(EntityType::Note).property("smuggled").unwrap();
+        assert!(!p.is_builtin());
+    }
+
+    #[test]
+    fn patch_can_extend_options_on_builtin_select() {
+        // The whole point of seeding built-ins into the schema: the
+        // user can extend their option list (Notion-style) just like
+        // any custom property.
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        s.load().unwrap();
+        let schema = s.current().unwrap();
+        let role = schema.for_type(EntityType::Person).property("role").unwrap();
+        let mut new_options = match role {
+            Property::SingleSelect(p) => p.options.clone(),
+            _ => panic!("role must be single-select"),
+        };
+        new_options.push(SelectOption {
+            value: "visiting-scholar".into(),
+            label: "Visiting Scholar".into(),
+            color: crate::schema::property::OptionColor::Teal,
+        });
+        let after = s
+            .patch_property(
+                EntityType::Person,
+                "role",
+                PatchableFields {
+                    options: Some(new_options.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let role = after.for_type(EntityType::Person).property("role").unwrap();
+        match role {
+            Property::SingleSelect(p) => {
+                assert!(p.options.iter().any(|o| o.value == "visiting-scholar"));
+                assert!(p.is_builtin, "patch must preserve is_builtin");
             }
             _ => panic!(),
         }
