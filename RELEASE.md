@@ -19,7 +19,7 @@ versa. `git tag --list` groups them visibly.
 ```bash
 cargo test -p eduport-core
 cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all -- --check
+cargo fmt -p eduport-core -p eduport -- --check
 npm --prefix frontend run check
 npm --prefix frontend exec vitest run
 ```

@@ -12,17 +12,17 @@
 
 use std::path::Path;
 
+use eduport_core::EntityType;
 use eduport_core::index::writer::upsert_entity as index_upsert;
 use eduport_core::schema::{
     EntitySchema, PatchableFields, Property, PropertyKind, Schema, SchemaStoreError, SelectOption,
     SingleSelectProperty,
 };
-use eduport_core::EntityType;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::{EduportState, EduportStateHandle};
 
 impl From<SchemaStoreError> for CommandError {

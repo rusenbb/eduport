@@ -452,11 +452,7 @@ mod tests {
         .expect("start watcher");
 
         let path = tmp.path().join("hi.md");
-        fs::write(
-            &path,
-            "---\nname: Hi\ntags:\n  - eduport-type/note\n---\n",
-        )
-        .unwrap();
+        fs::write(&path, "---\nname: Hi\ntags:\n  - eduport-type/note\n---\n").unwrap();
 
         let ev = recv_within(&rx, Duration::from_secs(2))
             .expect("watcher should emit an event for the new file");

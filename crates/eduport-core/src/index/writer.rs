@@ -55,11 +55,7 @@ pub fn delete_entity(conn: &Connection, file_id: &str) -> Result<(), IndexError>
     Ok(())
 }
 
-pub fn record_parse_error(
-    conn: &Connection,
-    path: &str,
-    message: &str,
-) -> Result<(), IndexError> {
+pub fn record_parse_error(conn: &Connection, path: &str, message: &str) -> Result<(), IndexError> {
     vaultdb_fts::record_parse_error(conn, path, message)?;
     Ok(())
 }
@@ -93,9 +89,9 @@ pub(crate) fn custom_text_for_fts5(entity: &Entity, schema: &Schema) -> String {
 mod tests {
     use super::super::Index;
     use super::*;
+    use crate::EntityType;
     use crate::entity::{Entity, Note};
     use crate::schema::{Property, TextProperty, empty_schema};
-    use crate::EntityType;
 
     fn note(name: &str, tags: &[&str]) -> Entity {
         let mut n = Note {
@@ -125,11 +121,9 @@ mod tests {
         .unwrap();
         let (file_id, name, mtime_ns): (String, String, i64) = index
             .conn()
-            .query_row(
-                "SELECT file_id, name, mtime_ns FROM entities",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
+            .query_row("SELECT file_id, name, mtime_ns FROM entities", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .unwrap();
         assert_eq!(file_id, "hello-1234");
         assert_eq!(name, "Hello");

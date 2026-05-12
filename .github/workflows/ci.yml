@@ -64,7 +64,12 @@ jobs:
       # rust-cache action speeds subsequent runs to seconds.
       - run: cargo test -p eduport-core --all-features
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo fmt --all -- --check
+      # `cargo fmt --all` walks local path-based dependencies too
+      # (see `cargo fmt --help`), which means rustfmt drift in the
+      # side-by-side vaultdb checkout would fail this repo's CI for
+      # reasons we don't control. Scope to our workspace packages —
+      # this mirrors what `cargo clippy --workspace` does.
+      - run: cargo fmt -p eduport-core -p eduport -- --check
 
   # The eduport-core publish dry-run is intentionally not part of
   # CI yet. `cargo package` strips path-deps and resolves them

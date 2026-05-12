@@ -13,12 +13,12 @@
 
 use std::collections::BTreeMap;
 
-use eduport_core::query::{query_for_filter, value_counts_for, EntitySummaryView, FilterInput};
 use eduport_core::EntityType;
+use eduport_core::query::{EntitySummaryView, FilterInput, query_for_filter, value_counts_for};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::commands::entity::EntityListItem;
 use crate::core_state::EduportStateHandle;
 
@@ -87,9 +87,11 @@ pub fn core_property_value_counts(
         sort_dir: "asc",
     };
     let q = query_for_filter(entity_type, &input);
-    let records = st.entity_store.vault().query(&q).map_err(|e| {
-        CommandError::internal(format!("vault.query failed: {e}"))
-    })?;
+    let records = st
+        .entity_store
+        .vault()
+        .query(&q)
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
     let pairs = value_counts_for(&records, &key);
     Ok(PropertyCountsResponse {
         entity_type,
@@ -131,9 +133,11 @@ pub fn core_filter_entities_by_properties(
         sort_dir,
     };
     let q = query_for_filter(entity_type, &input);
-    let records = st.entity_store.vault().query(&q).map_err(|e| {
-        CommandError::internal(format!("vault.query failed: {e}"))
-    })?;
+    let records = st
+        .entity_store
+        .vault()
+        .query(&q)
+        .map_err(|e| CommandError::internal(format!("vault.query failed: {e}")))?;
     Ok(records
         .iter()
         .filter_map(EntitySummaryView::from_record)

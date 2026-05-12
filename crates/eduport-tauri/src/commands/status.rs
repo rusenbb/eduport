@@ -15,7 +15,7 @@ use serde::Serialize;
 use tauri::State;
 use vaultdb_core::{Query, Value};
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 #[derive(Debug, Serialize)]

@@ -39,7 +39,7 @@ use eduport_core::entity::EntityStore;
 use eduport_core::index::{self, Index};
 use eduport_core::schema::SchemaStore;
 use eduport_core::view::store::ViewStore;
-use eduport_core::watcher::{VaultEvent, Watcher, DEFAULT_DEBOUNCE};
+use eduport_core::watcher::{DEFAULT_DEBOUNCE, VaultEvent, Watcher};
 use eduport_core::{Settings, Vault};
 use tauri::Emitter;
 
@@ -135,10 +135,7 @@ pub fn build_state(
 /// `VaultEvent`s as Tauri events on the `main` window. Each event
 /// carries a JSON payload the frontend can deserialise without
 /// looking at the Rust types.
-fn start_watcher(
-    state: &Arc<EduportState>,
-    app_handle: tauri::AppHandle,
-) -> Result<(), BootError> {
+fn start_watcher(state: &Arc<EduportState>, app_handle: tauri::AppHandle) -> Result<(), BootError> {
     let state_for_callback = Arc::clone(state);
     let watcher = Watcher::start(&state.data_folder, DEFAULT_DEBOUNCE, move |event| {
         // The watcher's worker thread is hot — keep this cheap.

@@ -16,7 +16,7 @@ use eduport_core::entity::Entity;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 const TRASH_DIR_NAME: &str = ".trash";

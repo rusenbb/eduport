@@ -6,13 +6,13 @@
 //! convention of slugifying the user-provided name) and forward
 //! everything else verbatim.
 
+use eduport_core::EntityType;
 use eduport_core::view::store::ViewStoreError;
 use eduport_core::view::types::{SortDir, TypeViews, View, ViewFilter, ViewKind, ViewsFile};
-use eduport_core::EntityType;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 impl From<ViewStoreError> for CommandError {

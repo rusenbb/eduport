@@ -17,7 +17,7 @@ use eduport_core::index::writer::upsert_entity as index_upsert;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 #[derive(Debug, Deserialize)]

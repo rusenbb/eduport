@@ -16,16 +16,16 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eduport_core::EntityType;
 use eduport_core::entity::Entity;
 use eduport_core::index::writer::{delete_entity as index_delete, upsert_entity as index_upsert};
-use eduport_core::query::{query_for_children, query_for_filter, EntitySummaryView, FilterInput};
-use eduport_core::EntityType;
+use eduport_core::query::{EntitySummaryView, FilterInput, query_for_children, query_for_filter};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::{EduportState, EduportStateHandle};
 
 /// One row in the entity-list view. Field-for-field compatible with

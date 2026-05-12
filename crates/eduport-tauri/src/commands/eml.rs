@@ -5,12 +5,12 @@
 //! handles the binary encoding); we decode and return a typed DTO
 //! the frontend already knows about.
 
-use eduport_core::eml::{parse_eml, ParsedEml};
+use eduport_core::eml::{ParsedEml, parse_eml};
 use eduport_core::entity::EmailDirection;
 use serde::Serialize;
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 #[derive(Debug, Serialize)]

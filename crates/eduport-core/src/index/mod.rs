@@ -20,9 +20,7 @@ pub mod writer;
 pub use reader::{SearchHit, search_fts};
 pub use reconcile::{ReconcileSummary, reconcile};
 pub use vaultdb_fts::{FTS_SCHEMA_VERSION as INDEX_SCHEMA_VERSION, InitOutcome};
-pub use writer::{
-    clear_parse_error, delete_entity, record_parse_error, upsert_entity,
-};
+pub use writer::{clear_parse_error, delete_entity, record_parse_error, upsert_entity};
 
 use rusqlite::Connection;
 use std::path::Path;

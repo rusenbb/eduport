@@ -1,10 +1,10 @@
 //! FTS5 search commands. Wraps `eduport_core::index::search_fts`.
 
-use eduport_core::index::{search_fts, SearchHit};
+use eduport_core::index::{SearchHit, search_fts};
 use serde::Serialize;
 use tauri::State;
 
-use super::{require_state, CommandError};
+use super::{CommandError, require_state};
 use crate::core_state::EduportStateHandle;
 
 /// Search hit DTO. Same field set as the Python sidecar's response,
