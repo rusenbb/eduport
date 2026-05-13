@@ -4,6 +4,34 @@
 **Author:** Claude (audit + recommendation)
 **Audience:** rusenbb, project lead
 
+> **Status update — 2026-05-13:** much of this doc is now historical.
+> Below is the body as originally written; the items it called out have
+> partially shipped. Skim the status table before treating any
+> specific recommendation as live.
+
+---
+
+## Status update — 2026-05-13 (what shipped since this doc)
+
+| TL;DR item | Status |
+|---|---|
+| Library-scope discipline (vaultdb-core ↔ eduport-core boundary) | ✅ Held. Eduport-core no longer reimplements queries; the ORM-substrate migration landed cleanly. |
+| 1. Second consumer | ✅ eduport-core moved onto the typed-ORM substrate with `#[derive(vaultdb_orm::Note)]` for all 8 entity types, plus a `schema::vaultdb_bridge` that converts eduport's Notion-style schema into a runtime vaultdb `CollectionSchema`. See vaultdb 1.1.0 CHANGELOG and eduport 0.2.0. |
+| 2. Benchmarks at scale | ⚠️ Partial. `BENCHMARKS.md` exists with 1k / 10k / 100k numbers, but no continuous-benchmark regression CI yet. |
+| 3. Stability contract | ⚠️ Pre-1.x ARCHITECTURE.md mentions semver intent but there's no `STABILITY.md` consumers can pin to. Still open. |
+| 4. FTS in the library | ✅ `vaultdb-fts` is an opt-in companion crate consuming `vaultdb-core::Record`. Not in-core (deliberate — keeps core stateless), but no longer "every consumer rolls their own." |
+| 5. Migration / upgrade story | ⚠️ Open. No `MIGRATIONS.md` yet. 1.0 → 1.1 was additive so no migration needed in practice; the gap matters when 2.0 lands. |
+
+Additional shipped since 05-11 (not in original TL;DR):
+
+- Schema-aware create end-to-end: `CreateBuilder` in `vaultdb-core`, `plan_create` MCP tool, `execute_*` MCP tools gated by `--dangerously-allow-*` flags, `Create<T>` in vaultdb-orm. All three frontends share one create path.
+- Three new schema field types: `wikilink`, `date`, `url`.
+- Schema defaults (`default:` literal and `default_expr:` for `today` / `now` / `epoch`).
+- `#[derive(Note)]` gained `collection = "..."` so `Create<T>` auto-resolves the matching YAML collection. `filter` became `discriminator`; `folder = ""` workaround dropped for tag-discriminated entities.
+- Bool literal coercion in CLI / DSL string paths (1.1.1).
+
+The audit's "everything else is maintenance" framing still applies: the open items are real but not blocking, and the substrate migration was the right call.
+
 ---
 
 ## TL;DR
