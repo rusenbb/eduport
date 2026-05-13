@@ -23,6 +23,7 @@ pub mod property;
 #[allow(clippy::module_inception)]
 pub mod schema;
 pub mod store;
+pub mod vaultdb_bridge;
 
 pub use builtins::{is_builtin_key, seeded_builtins};
 pub use property::{
@@ -31,3 +32,4 @@ pub use property::{
 };
 pub use schema::{EntitySchema, SCHEMA_VERSION, Schema, default_schema, empty_schema};
 pub use store::{PatchableFields, SchemaStore, SchemaStoreError};
+pub use vaultdb_bridge::collection_for as vaultdb_collection_for;
