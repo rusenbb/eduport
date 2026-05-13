@@ -58,7 +58,10 @@ impl BaseEntityFields {
 // ─── University ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/university")]
+#[note(
+    discriminator = "tags contains eduport-type/university",
+    collection = "university"
+)]
 pub struct University {
     pub name: String,
     #[serde(default)]
@@ -79,7 +82,10 @@ pub struct University {
 // ─── Lab ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/lab")]
+#[note(
+    discriminator = "tags contains eduport-type/lab",
+    collection = "lab"
+)]
 pub struct Lab {
     pub name: String,
     #[serde(default)]
@@ -101,7 +107,10 @@ pub struct Lab {
 // ─── Person ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/person")]
+#[note(
+    discriminator = "tags contains eduport-type/person",
+    collection = "person"
+)]
 pub struct Person {
     pub name: String,
     #[serde(default)]
@@ -133,7 +142,10 @@ pub enum ProgramLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/program")]
+#[note(
+    discriminator = "tags contains eduport-type/program",
+    collection = "program"
+)]
 pub struct Program {
     pub name: String,
     #[serde(default)]
@@ -187,7 +199,10 @@ pub enum ApplicationStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/application")]
+#[note(
+    discriminator = "tags contains eduport-type/application",
+    collection = "application"
+)]
 pub struct Application {
     pub name: String,
     #[serde(default)]
@@ -218,7 +233,10 @@ pub enum DocumentStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/document")]
+#[note(
+    discriminator = "tags contains eduport-type/document",
+    collection = "document"
+)]
 pub struct Document {
     pub name: String,
     #[serde(default)]
@@ -265,7 +283,10 @@ pub enum EmailDirection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/email")]
+#[note(
+    discriminator = "tags contains eduport-type/email",
+    collection = "email"
+)]
 pub struct Email {
     pub name: String,
     #[serde(default)]
@@ -302,7 +323,10 @@ pub struct Email {
 // ─── Note ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(folder = "", filter = "tags contains eduport-type/note")]
+#[note(
+    discriminator = "tags contains eduport-type/note",
+    collection = "note"
+)]
 pub struct Note {
     pub name: String,
     #[serde(default)]
