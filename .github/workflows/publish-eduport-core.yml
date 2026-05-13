@@ -30,7 +30,6 @@ jobs:
   publish:
     name: cargo publish eduport-core
     runs-on: ubuntu-22.04
-    environment: production
     steps:
       - uses: actions/checkout@v4
         with:
