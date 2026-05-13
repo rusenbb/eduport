@@ -82,10 +82,7 @@ pub struct University {
 // ─── Lab ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(
-    discriminator = "tags contains eduport-type/lab",
-    collection = "lab"
-)]
+#[note(discriminator = "tags contains eduport-type/lab", collection = "lab")]
 pub struct Lab {
     pub name: String,
     #[serde(default)]
@@ -323,10 +320,7 @@ pub struct Email {
 // ─── Note ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, vaultdb_orm::Note)]
-#[note(
-    discriminator = "tags contains eduport-type/note",
-    collection = "note"
-)]
+#[note(discriminator = "tags contains eduport-type/note", collection = "note")]
 pub struct Note {
     pub name: String,
     #[serde(default)]
@@ -396,9 +390,8 @@ impl Entity {
                 break;
             }
         }
-        let entity_type = entity_type.ok_or_else(|| {
-            format!("record has no {EDUPORT_TYPE_PREFIX}* tag")
-        })?;
+        let entity_type =
+            entity_type.ok_or_else(|| format!("record has no {EDUPORT_TYPE_PREFIX}* tag"))?;
 
         fn map_err(e: vaultdb_orm::OrmError) -> String {
             e.to_string()
