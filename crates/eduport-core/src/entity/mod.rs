@@ -19,7 +19,7 @@ pub mod types;
 pub use resources::{EmailResource, LinkResource};
 pub use store::{EntityStore, EntityStoreError};
 pub use types::{
-    record_eduport_type, Application, ApplicationStatus, BaseEntityFields, Document,
-    DocumentStatus, EDUPORT_TYPE_PREFIX, Email, EmailDirection, Entity, Lab, Note, Person, Program,
-    ProgramLevel, University,
+    Application, ApplicationStatus, BaseEntityFields, Document, DocumentStatus,
+    EDUPORT_TYPE_PREFIX, Email, EmailDirection, Entity, Lab, Note, Person, Program, ProgramLevel,
+    University, record_eduport_type,
 };

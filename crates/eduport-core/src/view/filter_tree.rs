@@ -314,11 +314,7 @@ mod tests {
             root: Some(FilterNode::Group(FilterGroup {
                 op: Combinator::And,
                 children: vec![
-                    cond(
-                        "email",
-                        FilterOperator::IsNotEmpty,
-                        None,
-                    ),
+                    cond("email", FilterOperator::IsNotEmpty, None),
                     cond(
                         "name",
                         FilterOperator::StartsWith,
@@ -349,8 +345,16 @@ mod tests {
             root: Some(FilterNode::Group(FilterGroup {
                 op: Combinator::Or,
                 children: vec![
-                    cond("country", FilterOperator::Equals, Some(FilterValue::Text("usa".into()))),
-                    cond("country", FilterOperator::Equals, Some(FilterValue::Text("japan".into()))),
+                    cond(
+                        "country",
+                        FilterOperator::Equals,
+                        Some(FilterValue::Text("usa".into())),
+                    ),
+                    cond(
+                        "country",
+                        FilterOperator::Equals,
+                        Some(FilterValue::Text("japan".into())),
+                    ),
                 ],
             })),
         };

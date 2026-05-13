@@ -30,8 +30,8 @@ use vaultdb_orm::{OrmError, Query};
 use crate::EduportError;
 use crate::EntityType;
 use crate::entity::types::{
-    record_eduport_type, Application, Document, Email, Entity, Lab, Note, Person, Program,
-    University,
+    Application, Document, Email, Entity, Lab, Note, Person, Program, University,
+    record_eduport_type,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -166,27 +166,28 @@ impl EntityStore {
             return Ok(None);
         }
         let root = &self.vault.root;
-        let parse = |result: vaultdb_orm::Result<Entity>| -> Result<Option<Entity>, EntityStoreError> {
-            result.map(Some).map_err(|e| match e {
-                vaultdb_orm::OrmError::Vault(v) => {
-                    EntityStoreError::Eduport(EduportError::Vaultdb(v))
-                }
-                other => EntityStoreError::ParseFailed {
-                    path: record.path.display().to_string(),
-                    reason: other.to_string(),
-                },
-            })
-        };
+        let parse =
+            |result: vaultdb_orm::Result<Entity>| -> Result<Option<Entity>, EntityStoreError> {
+                result.map(Some).map_err(|e| match e {
+                    vaultdb_orm::OrmError::Vault(v) => {
+                        EntityStoreError::Eduport(EduportError::Vaultdb(v))
+                    }
+                    other => EntityStoreError::ParseFailed {
+                        path: record.path.display().to_string(),
+                        reason: other.to_string(),
+                    },
+                })
+            };
         match kind {
-            EntityType::University => parse(
-                University::from_record(&record, root).map(Entity::University),
-            ),
+            EntityType::University => {
+                parse(University::from_record(&record, root).map(Entity::University))
+            }
             EntityType::Lab => parse(Lab::from_record(&record, root).map(Entity::Lab)),
             EntityType::Person => parse(Person::from_record(&record, root).map(Entity::Person)),
             EntityType::Program => parse(Program::from_record(&record, root).map(Entity::Program)),
-            EntityType::Application => parse(
-                Application::from_record(&record, root).map(Entity::Application),
-            ),
+            EntityType::Application => {
+                parse(Application::from_record(&record, root).map(Entity::Application))
+            }
             EntityType::Document => {
                 parse(Document::from_record(&record, root).map(Entity::Document))
             }
@@ -411,7 +412,6 @@ fn extract_body(content: &str) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,7 +563,10 @@ mod tests {
         store
             .delete(EntityType::Note, "stanford", true)
             .expect("note delete should succeed");
-        assert!(!path.exists(), "file should be removed by correct-kind delete");
+        assert!(
+            !path.exists(),
+            "file should be removed by correct-kind delete"
+        );
     }
 
     #[test]

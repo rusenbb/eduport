@@ -782,7 +782,10 @@ mod tests {
                 },
             )
             .unwrap();
-        let p = after.for_type(EntityType::Note).property("priority").unwrap();
+        let p = after
+            .for_type(EntityType::Note)
+            .property("priority")
+            .unwrap();
         match p {
             Property::SingleSelect(ssp) => {
                 assert_eq!(ssp.options, new_options);
@@ -804,7 +807,10 @@ mod tests {
         let person = schema.for_type(EntityType::Person);
         let role = person.property("role").unwrap();
         assert!(role.is_builtin());
-        assert!(matches!(role.kind(), crate::schema::PropertyKind::SingleSelect));
+        assert!(matches!(
+            role.kind(),
+            crate::schema::PropertyKind::SingleSelect
+        ));
     }
 
     #[test]
@@ -835,7 +841,10 @@ mod tests {
                 }),
             )
             .unwrap();
-        let p = after.for_type(EntityType::Note).property("smuggled").unwrap();
+        let p = after
+            .for_type(EntityType::Note)
+            .property("smuggled")
+            .unwrap();
         assert!(!p.is_builtin());
     }
 
@@ -848,7 +857,10 @@ mod tests {
         let s = store(&dir);
         s.load().unwrap();
         let schema = s.current().unwrap();
-        let role = schema.for_type(EntityType::Person).property("role").unwrap();
+        let role = schema
+            .for_type(EntityType::Person)
+            .property("role")
+            .unwrap();
         let mut new_options = match role {
             Property::SingleSelect(p) => p.options.clone(),
             _ => panic!("role must be single-select"),

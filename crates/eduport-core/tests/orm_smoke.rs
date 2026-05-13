@@ -35,11 +35,7 @@ fn setup() -> (TempDir, Vault) {
         "csail",
         "name: CSAIL\ntags:\n  - eduport-type/lab\nfocus: AI",
     );
-    write(
-        &dir,
-        "alice",
-        "name: Alice\ntags:\n  - eduport-type/person",
-    );
+    write(&dir, "alice", "name: Alice\ntags:\n  - eduport-type/person");
     write(
         &dir,
         "phd-cs",

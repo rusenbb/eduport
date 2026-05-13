@@ -262,10 +262,22 @@ fn role_property() -> Property {
             opt("phd-student", "PhD Student", OptionColor::Blue),
             opt("masters-student", "Master's Student", OptionColor::Teal),
             opt("postdoc", "Postdoc", OptionColor::Green),
-            opt("research-scientist", "Research Scientist", OptionColor::Yellow),
+            opt(
+                "research-scientist",
+                "Research Scientist",
+                OptionColor::Yellow,
+            ),
             opt("lecturer", "Lecturer", OptionColor::Orange),
-            opt("assistant-professor", "Assistant Professor", OptionColor::Purple),
-            opt("associate-professor", "Associate Professor", OptionColor::Pink),
+            opt(
+                "assistant-professor",
+                "Assistant Professor",
+                OptionColor::Purple,
+            ),
+            opt(
+                "associate-professor",
+                "Associate Professor",
+                OptionColor::Pink,
+            ),
             opt("professor", "Professor", OptionColor::Red),
             opt("admin", "Admin", OptionColor::Gray),
         ],
@@ -401,14 +413,20 @@ mod tests {
     fn program_seeds_language_as_multi_select() {
         let props = seeded_builtins(EntityType::Program);
         let language = props.iter().find(|p| p.key() == "language").unwrap();
-        assert!(matches!(language.kind(), crate::schema::PropertyKind::MultiSelect));
+        assert!(matches!(
+            language.kind(),
+            crate::schema::PropertyKind::MultiSelect
+        ));
     }
 
     #[test]
     fn program_seeds_tuition_as_number() {
         let props = seeded_builtins(EntityType::Program);
         let tuition = props.iter().find(|p| p.key() == "tuition").unwrap();
-        assert!(matches!(tuition.kind(), crate::schema::PropertyKind::Number));
+        assert!(matches!(
+            tuition.kind(),
+            crate::schema::PropertyKind::Number
+        ));
     }
 
     #[test]

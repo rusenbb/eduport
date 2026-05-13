@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 
 /// Eduport's eight first-class entity types. Stored in record frontmatter
 /// as a `eduport-type/<value>` tag (e.g. `eduport-type/university`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum EntityType {
     University,

@@ -322,9 +322,9 @@ pub fn core_schema_purge_orphans(
             .map(|d| d.as_nanos() as i64)
             .unwrap_or(0);
         let index = st
-        .index
-        .lock()
-        .map_err(|_| CommandError::internal("index mutex poisoned"))?;
+            .index
+            .lock()
+            .map_err(|_| CommandError::internal("index mutex poisoned"))?;
         let _ = index_upsert(
             index.conn(),
             &file_id,
