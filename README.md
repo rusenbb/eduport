@@ -5,9 +5,11 @@ Eduport is a single-device desktop workspace for master's and PhD research and a
 ## What works
 
 - Universities, labs, people, programs, applications, publications, projects, mail, documents, and notes. A person has one record and any number of role-bearing links to other records. Labs can link to several institutions. Each type has relevant fields; program level and application status are required. Add optional or required fields, use tags and links, and drag record types to reorder the sidebar.
+- Create custom entity types. Every type has a table and can have multiple named views with column selection, AND filters, ordered sorts, and one grouping field. Views are projections over the shared record store, not separate physical SQLite tables.
+- Define relationships between entity types first, then link matching records. Eduport includes common academic relationships; custom types can have their own definitions. Links can carry roles and dates.
 - Local SQLite with transactional writes, foreign keys, full-text index, optimistic revisions, recoverable trash, and a consistent backup command.
 - Preview and import an old Eduport Markdown vault or an Eduport export. Import merges into the current database only if IDs and files do not conflict. The source folder is left untouched, and legacy originals and attachments are retained. Export writes readable Markdown, a schema/relation manifest, and managed files.
-- Assistant with local Ollama or cloud OpenRouter. Choose a provider and model in Settings. Choose the records for each request. Cloud requests require an explicit checkbox for each request. In controlled mode every suggested write waits for review; in delegated mode only the record types you allow may be changed directly. The assistant cannot delete records or send mail.
+- Tool-using assistant with local Ollama or cloud OpenRouter. It can read entity data and imported files through bounded, paginated tools. Cloud requests require explicit consent to share any records or files the agent reads. Writes to chosen entity types can be unrestricted; writes to other types enter a persistent approval queue. Links need permission for both endpoint types. Permanent deletion and mail sending are unavailable to the agent.
 - Gmail connection using a Google Desktop OAuth client, PKCE, and the read-only Gmail scope. Search, select up to 20 messages, preview, and import them. The original `.eml` is retained for export. Re-importing the same message for one account is blocked by a unique key. Gmail is the first mail provider adapter; the app has no mail sending or background inbox sync.
 
 ## Run locally
@@ -21,25 +23,29 @@ npm run tauri dev
 
 For browser-based development, run `npm run dev` and open `http://127.0.0.1:1420/`. This starts a loopback-only Rust API alongside Vite. The browser and desktop app use the **same local SQLite database**, so records and sidebar order survive reloads. Native file dialogs and Gmail sign-in remain desktop-only.
 
+For isolated development, `EDUPORT_DB_PATH`, `EDUPORT_DEV_PORT`, and `EDUPORT_DEV_API_PORT` override the database path and loopback ports.
+
 `npm run check`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml` verify the frontend and Rust core. `npm run tauri build` produces a desktop bundle.
 
 The desktop database lives in the platform application-data directory under `io.github.rusenbb.eduport/eduport.sqlite`. Use **Settings → Back up database** before experimenting with imports. Backups are separate SQLite files. **Export Markdown** creates a new `eduport-export-<timestamp>` folder inside the folder you choose.
 
 ## Providers
 
-**Ollama:** Install and run Ollama locally, download a model, then select `Ollama` and enter the model name. Eduport calls the local `/api/chat` endpoint. It does not start Ollama or download a model for you.
+**Ollama:** Install and run Ollama locally, download a model with tool support, then select `Ollama` and enter the model name. Eduport calls its local OpenAI-compatible chat endpoint. It does not start Ollama or download a model for you.
 
-**OpenRouter:** Select `OpenRouter`, enter a model ID, and save an API key in Settings. The key is stored in the operating system's credential store, outside the SQLite database and Markdown exports. A request to OpenRouter sends your question and only the records you checked. Review the provider's model pricing and privacy terms before using it.
+**OpenRouter:** Select `OpenRouter`, enter a tool-capable model ID, and save an API key in Settings. The key is stored in the operating system's credential store, outside the SQLite database and Markdown exports. The agent may send records and imported files it reads to the model after per-request consent. Review the provider's model pricing and privacy terms before using it.
+
+Both providers need a model that supports function/tool calls; see the [Ollama tool guide](https://ollama.com/blog/tool-support) and [OpenRouter tool-calling guide](https://openrouter.ai/docs/guides/features/tool-calling).
 
 **Gmail:** In Google Cloud, create an OAuth client of type **Desktop app**, configure the Gmail read-only scope for the consent screen, and copy its client ID into Eduport Settings. Google may restrict an unverified app to test users. Sign-in opens your browser and returns to a temporary loopback address on this device. The refresh token stays in the operating system's credential store. Eduport requests read-only access and cannot send or modify messages.
 
-Provider code lives in `src-tauri/src/ai.rs` and `src-tauri/src/mail.rs`; the frontend calls native commands through `src/lib/api.ts`. Additional providers can be added behind these boundaries without changing the record store.
+Provider code lives in `src-tauri/src/ai.rs`, `src-tauri/src/agent.rs`, and `src-tauri/src/mail.rs`; the frontend calls native commands through `src/lib/api.ts`. Additional providers can be added behind these boundaries without changing the record store.
 
 ## Import and recovery
 
 The old Eduport Markdown vault can be selected from **Settings → Import Markdown**. The preview lists records, files, warnings, and blockers before any write. An import is one SQLite transaction. Existing records are never overwritten, and a changed source folder invalidates its preview. Legacy Markdown values that cannot be mapped cleanly stay in the preserved original file, and the preview warns about them.
 
-An Eduport Markdown export is round-trippable through the same preview/import flow. A SQLite backup is the fastest complete recovery copy; close Eduport before replacing its database file with a backup. The app currently targets one device. Copying a live SQLite file into Dropbox or iCloud as an active sync mechanism is unsupported.
+An Eduport Markdown export includes entity types, records, relationship definitions, links, saved views, and managed files, and is round-trippable through the same preview/import flow. It is a point-in-time recovery copy, not an undo system. Pending agent approvals live in SQLite and are covered by SQLite backups, not Markdown export. A SQLite backup is the fastest complete recovery copy; close Eduport before replacing its database file with a backup. The app currently targets one device. Copying a live SQLite file into Dropbox or iCloud as an active sync mechanism is unsupported.
 
 ## Current boundaries
 

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod agent;
 pub mod ai;
 pub mod db;
 mod mail;
@@ -7,7 +8,10 @@ mod portable;
 
 use std::sync::Mutex;
 
-use db::{Db, Record, RecordInput, RecordType, Relation, RelationInput};
+use db::{
+    Db, Record, RecordInput, RecordType, Relation, RelationDefinition, RelationDefinitionInput,
+    RelationInput, TableView, TableViewInput,
+};
 use serde_json::Value;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
@@ -84,6 +88,11 @@ fn list_relations(state: tauri::State<'_, DbState>, id: String) -> Result<Vec<Re
 }
 
 #[tauri::command]
+fn list_all_relations(state: tauri::State<'_, DbState>) -> Result<Vec<Relation>, String> {
+    with_db(state, |db| db.all_relations())
+}
+
+#[tauri::command]
 fn put_relation(
     state: tauri::State<'_, DbState>,
     input: RelationInput,
@@ -94,6 +103,42 @@ fn put_relation(
 #[tauri::command]
 fn delete_relation(state: tauri::State<'_, DbState>, id: String) -> Result<(), String> {
     with_db(state, |db| db.delete_relation(&id))
+}
+
+#[tauri::command]
+fn list_relation_definitions(
+    state: tauri::State<'_, DbState>,
+    type_key: Option<String>,
+) -> Result<Vec<RelationDefinition>, String> {
+    with_db(state, |db| {
+        db.list_relation_definitions(type_key.as_deref())
+    })
+}
+
+#[tauri::command]
+fn put_relation_definition(
+    state: tauri::State<'_, DbState>,
+    input: RelationDefinitionInput,
+) -> Result<RelationDefinition, String> {
+    with_db(state, |db| db.put_relation_definition(input))
+}
+
+#[tauri::command]
+fn list_views(
+    state: tauri::State<'_, DbState>,
+    type_key: String,
+) -> Result<Vec<TableView>, String> {
+    with_db(state, |db| db.list_views(&type_key))
+}
+
+#[tauri::command]
+fn put_view(state: tauri::State<'_, DbState>, input: TableViewInput) -> Result<TableView, String> {
+    with_db(state, |db| db.put_view(input))
+}
+
+#[tauri::command]
+fn delete_view(state: tauri::State<'_, DbState>, id: String) -> Result<(), String> {
+    with_db(state, |db| db.delete_view(&id))
 }
 
 #[tauri::command]
@@ -216,33 +261,58 @@ fn has_openrouter_key() -> Result<bool, String> {
 #[tauri::command]
 async fn ask_assistant(
     state: tauri::State<'_, DbState>,
-    input: ai::AskInput,
-) -> Result<ai::AskResult, String> {
-    ai::ask(&state, input).await
+    input: agent::AskInput,
+) -> Result<agent::AskResult, String> {
+    agent::ask(&state, input).await
 }
 
 #[tauri::command]
-fn approve_ai_suggestion(
+fn list_agent_actions(state: tauri::State<'_, DbState>) -> Result<Vec<db::AgentAction>, String> {
+    with_db(state, |db| db.list_agent_actions())
+}
+
+#[tauri::command]
+fn approve_agent_action(
     app: tauri::AppHandle,
     state: tauri::State<'_, DbState>,
-    suggestion: ai::Suggestion,
-) -> Result<String, String> {
+    id: String,
+) -> Result<agent::ActionOutcome, String> {
+    let action = {
+        let db = state
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        db.get_agent_action(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Action not found.".to_string())?
+    };
     let approved = app
         .dialog()
         .message(format!(
-            "Apply AI suggestion to {} record '{}'? Review the proposed content in Eduport first.",
-            suggestion.type_key, suggestion.title
+            "Apply AI action '{}' to {}? Review its arguments in Eduport first.",
+            action.tool,
+            action.target_types.join(", ")
         ))
-        .title("Apply AI suggestion")
+        .title("Approve AI database change")
         .buttons(MessageDialogButtons::OkCancel)
         .blocking_show();
     if !approved {
-        return Err("Suggestion was not approved.".into());
+        return Err("Action was not approved.".into());
     }
     let mut db = state
         .lock()
         .map_err(|_| "database lock poisoned".to_string())?;
-    ai::apply_suggestion(&mut db, &suggestion)
+    agent::approve(&mut db, &id)
+}
+
+#[tauri::command]
+fn reject_agent_action(
+    state: tauri::State<'_, DbState>,
+    id: String,
+) -> Result<db::AgentAction, String> {
+    let mut db = state
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    agent::reject(&mut db, &id)
 }
 
 #[tauri::command]
@@ -363,8 +433,14 @@ pub fn run() {
             set_deleted,
             search_records,
             list_relations,
+            list_all_relations,
             put_relation,
             delete_relation,
+            list_relation_definitions,
+            put_relation_definition,
+            list_views,
+            put_view,
+            delete_view,
             get_setting,
             put_setting,
             preview_markdown_import,
@@ -376,7 +452,9 @@ pub fn run() {
             set_openrouter_key,
             has_openrouter_key,
             ask_assistant,
-            approve_ai_suggestion,
+            list_agent_actions,
+            approve_agent_action,
+            reject_agent_action,
             get_gmail_account,
             connect_gmail,
             search_gmail,

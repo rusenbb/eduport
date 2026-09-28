@@ -48,9 +48,27 @@ export interface Relation {
   position: number | null;
   start_date: string | null;
   end_date: string | null;
+  definition_id: string | null;
 }
 
 export type RelationInput = Omit<Relation, 'id'>;
+
+export interface RelationDefinition {
+  id: string;
+  source_type: string;
+  target_type: string;
+  name: string;
+  inverse_name: string;
+  built_in: boolean;
+}
+
+export type RelationDefinitionInput = Omit<RelationDefinition, 'id' | 'built_in'> & { id?: string | null };
+
+export interface FilterRule { field: string; operator: 'contains' | 'equals' | 'not_equals' | 'is_empty' | 'greater_than' | 'less_than'; value: string; }
+export interface SortRule { field: string; direction: 'asc' | 'desc'; }
+export interface ViewConfig { columns: string[]; filters: FilterRule[]; sorts: SortRule[]; group_by: string | null; }
+export interface TableView { id: string; type_key: string; name: string; config: ViewConfig; is_default: boolean; }
+export type TableViewInput = Omit<TableView, 'id' | 'is_default'> & { id?: string | null };
 
 export interface ImportPreview {
   fingerprint: string;
@@ -68,27 +86,25 @@ export interface AiConfig {
   delegated_types: string[];
 }
 
-export interface AiSuggestion {
-  operation: 'create' | 'update';
-  id: string | null;
-  expected_revision: number | null;
-  type_key: string;
-  title: string;
-  body: string;
-  values: Record<string, unknown>;
-  tags: string[];
+export interface AgentAction {
+  id: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  target_types: string[];
+  status: 'pending' | 'applying' | 'applied' | 'rejected';
+  created_at: number;
+  error: string | null;
 }
+
+export interface ActionOutcome { action: AgentAction; result: unknown | null; }
 
 export interface AiResult {
   answer: string;
-  suggestions: Array<{
-    suggestion: AiSuggestion;
-    status: 'pending' | 'applied' | 'rejected';
-    note: string | null;
-  }>;
+  actions: ActionOutcome[];
   provider: string;
   model: string;
-  shared_record_ids: string[];
+  read_calls: number;
+  write_calls: number;
 }
 
 export interface GmailAccount {

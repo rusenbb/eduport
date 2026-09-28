@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AiConfig, AiResult, AiSuggestion, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput } from './types';
+import type { AiConfig, AiResult, AgentAction, ActionOutcome, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput } from './types';
 
 export const inDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -26,10 +26,18 @@ export const api = {
     invokeApp<Entry[]>('search_records', { query, limit }),
   listRelations: (id: string) =>
     invokeApp<Relation[]>('list_relations', { id }),
+  listAllRelations: () => invokeApp<Relation[]>('list_all_relations'),
   putRelation: (input: RelationInput) =>
     invokeApp<Relation>('put_relation', { input }),
   deleteRelation: (id: string) =>
     invokeApp<void>('delete_relation', { id }),
+  listRelationDefinitions: (typeKey?: string) =>
+    invokeApp<RelationDefinition[]>('list_relation_definitions', { typeKey: typeKey || null }),
+  putRelationDefinition: (input: RelationDefinitionInput) =>
+    invokeApp<RelationDefinition>('put_relation_definition', { input }),
+  listViews: (typeKey: string) => invokeApp<TableView[]>('list_views', { typeKey }),
+  putView: (input: TableViewInput) => invokeApp<TableView>('put_view', { input }),
+  deleteView: (id: string) => invokeApp<void>('delete_view', { id }),
   getSetting: <T>(key: string) =>
     invokeApp<T | null>('get_setting', { key }),
   putSetting: (key: string, value: unknown) =>
@@ -50,10 +58,11 @@ export const api = {
     invokeApp<void>('set_openrouter_key', { key }),
   hasOpenRouterKey: () =>
     invokeApp<boolean>('has_openrouter_key'),
-  askAssistant: (input: { question: string; context_ids: string[]; allow_cloud: boolean }) =>
+  askAssistant: (input: { question: string; allow_cloud: boolean }) =>
     invokeApp<AiResult>('ask_assistant', { input }),
-  approveAiSuggestion: (suggestion: AiSuggestion) =>
-    invokeApp<string>('approve_ai_suggestion', { suggestion }),
+  listAgentActions: () => invokeApp<AgentAction[]>('list_agent_actions'),
+  approveAgentAction: (id: string) => invokeApp<ActionOutcome>('approve_agent_action', { id }),
+  rejectAgentAction: (id: string) => invokeApp<AgentAction>('reject_agent_action', { id }),
   getGmailAccount: () => invokeApp<GmailAccount | null>('get_gmail_account'),
   connectGmail: (clientId: string) => invokeApp<GmailAccount>('connect_gmail', { clientId }),
   searchGmail: (query: string) => invokeApp<GmailMessage[]>('search_gmail', { query }),

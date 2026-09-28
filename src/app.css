@@ -217,3 +217,49 @@ h3 { font-size: 17px; margin-bottom: 0; }
 .mail-preview-item p { white-space: pre-wrap; max-height: 110px; overflow: auto; }
 .mail-preview .primary-button { margin-top: 15px; }
 @media (max-width: 600px) { .mail-query { flex-direction: column; } }
+/* Entity tables and saved views */
+.view-tabs { display: flex; align-items: center; gap: 5px; padding: 11px 14px 0; overflow-x: auto; border-bottom: 1px solid #e8ece5; }
+.view-tabs button { flex: none; border: 0; border-bottom: 2px solid transparent; background: none; color: #778a7c; padding: 9px 11px 11px; font-size: 11px; font-weight: 650; }
+.view-tabs button:hover { color: #294837; }
+.view-tabs button.active { color: #294837; border-bottom-color: #bc7453; }
+.view-tabs .view-add { display: inline-flex; align-items: center; gap: 5px; margin-left: 5px; color: #9e654d; }
+.table-scroll { width: 100%; overflow-x: auto; }
+.table-group-heading { padding: 14px 18px 9px; color: #365443; font-size: 11px; font-weight: 700; background: #f5f8f3; border-top: 1px solid #e5ebe2; }
+.table-group-heading span { margin-left: 7px; color: #9aaa9d; font-weight: 500; }
+.entity-table { border-collapse: collapse; width: 100%; min-width: 650px; font-size: 11.5px; }
+.entity-table th { text-align: left; white-space: nowrap; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: #809185; background: #f8faf6; padding: 11px 15px; border-bottom: 1px solid #e6ebe4; }
+.entity-table td { max-width: 260px; min-width: 100px; padding: 12px 15px; border-bottom: 1px solid #eef1eb; color: #617167; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entity-table tr.selected td, .entity-table tbody tr:hover td { background: #f4f8f2; }
+.entity-table .table-title { border: 0; background: none; padding: 0; color: #2c4838; font-size: 11.5px; font-weight: 650; text-align: left; white-space: nowrap; }
+.entity-table .table-title:hover { text-decoration: underline; }
+.relationship-definitions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 28px; }
+.relationship-definition-row { padding: 14px 17px; border-bottom: 1px solid #edf0ea; font-size: 11px; }
+.relationship-definition-row:nth-child(odd) { border-right: 1px solid #edf0ea; }
+.relationship-definition-row > span { display: flex; align-items: center; gap: 7px; }
+.relationship-definition-row strong { font-weight: 650; color: #344b3d; }
+.relationship-definition-row > span + span { margin-top: 5px; color: #77877b; }
+.relationship-definition-row small { color: #a1ada3; }
+.view-dialog { width: min(790px, 100%); }
+.view-editor-section { margin-top: 24px; padding-top: 17px; border-top: 1px solid #e8ece4; }
+.view-editor-section h3 { margin: 0 0 11px; }
+.view-editor-section .section-heading { margin: 0 0 8px; }
+.view-editor-section p { font-size: 11px; }
+.view-column-options { display: flex; flex-wrap: wrap; gap: 9px 18px; }
+.view-column-options label { display: inline-flex; align-items: center; gap: 7px; color: #566f5e; font-size: 11px; }
+.view-rule { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.view-rule input, .view-rule select { min-width: 0; flex: 1; border: 1px solid #dce4d9; border-radius: 7px; background: #fff; color: #2b4033; padding: 8px 9px; font-size: 11px; }
+.view-rule .icon-button { flex: none; }
+@media (max-width: 850px) { .relationship-definitions { grid-template-columns: 1fr; } .relationship-definition-row:nth-child(odd) { border-right: 0; } }
+/* Agent actions and per-type permissions */
+.permission-summary { border: 1px solid #dce8da; background: #f5f9f3; padding: 13px; border-radius: 8px; margin: 18px 0 22px; }
+.permission-summary strong, .permission-summary span, .permission-summary small { display: block; }
+.permission-summary strong { font-size: 11px; color: #365744; }
+.permission-summary span { margin-top: 6px; font-size: 11px; color: #526f5c; line-height: 1.5; }
+.permission-summary small { margin-top: 5px; font-size: 10px; color: #8ca08f; }
+.pending-action { border-top: 1px solid #e9ede7; padding: 14px 0; }
+.pending-action strong, .pending-action small { display: block; }
+.pending-action strong { font-size: 11px; color: #3b5042; text-transform: capitalize; }
+.pending-action small { margin-top: 4px; font-size: 10px; color: #93a094; }
+.pending-action pre, .suggestion-card pre { background: #f5f6f2; border: 1px solid #e8ebe4; border-radius: 6px; padding: 8px; margin: 10px 0; max-height: 170px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #506355; font-size: 10px; }
+.pending-action > div { display: flex; gap: 6px; }
+.pending-action p { font-size: 10px; line-height: 1.5; color: #a15c43; }

@@ -2,16 +2,29 @@
   import {
     ArrowLeft, ArrowRight, BookOpen, BookText, Building2, Check, ChevronRight, CircleHelp,
     Clock3, Download, FileText, FlaskConical, FolderKanban, GraduationCap, GripVertical,
-    Home, Layers3, Link2, Mail, Plus, Search, Settings2, Sparkles, StickyNote,
+    Home, Layers3, Link2, Mail, Plus, Search, Settings2, SlidersHorizontal, Sparkles, StickyNote,
     Trash2, UserRound, X
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import { api, inDesktop } from '$lib/api';
-  import type { AiConfig, AiResult, Entry, EntryInput, FieldDef, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput } from '$lib/types';
+  import { applyTableView, cellValue, displayValue } from '$lib/table';
+  import type { RelationIndex } from '$lib/table';
+  import type { AiConfig, AiResult, AgentAction, Entry, EntryInput, FieldDef, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput, ViewConfig } from '$lib/types';
 
   let types = $state<RecordType[]>([]);
   let entries = $state<Entry[]>([]);
   let relations = $state<Relation[]>([]);
+  let allRelations = $state<Relation[]>([]);
+  let definitions = $state<RelationDefinition[]>([]);
+  let views = $state<TableView[]>([]);
+  let currentViewId = $state('');
+  let viewDraft = $state<TableViewInput | null>(null);
+  let newTypeOpen = $state(false);
+  let newTypeLabel = $state('');
+  let newTypeKey = $state('');
+  let newTypeIcon = $state('file');
+  let definitionOpen = $state(false);
+  let definitionDraft = $state<RelationDefinitionInput>({ id: null, source_type: 'lab', target_type: 'university', name: '', inverse_name: '' });
   let active = $state('home');
   let selectedId = $state<string | null>(null);
   let searchQuery = $state('');
@@ -28,7 +41,7 @@
   let openrouterKey = $state('');
   let keyConfigured = $state(false);
   let assistantPrompt = $state('');
-  let assistantContext = $state<string[]>([]);
+  let pendingActions = $state<AgentAction[]>([]);
   let allowCloud = $state(false);
   let assistantBusy = $state(false);
   let assistantResult = $state<AiResult | null>(null);
@@ -48,7 +61,7 @@
   let newFieldOptions = $state('');
   let relationDraft = $state<RelationInput>({
     source_id: '', target_id: '', kind: 'related_to', role: null,
-    position: null, start_date: null, end_date: null
+    position: null, start_date: null, end_date: null, definition_id: null
   });
   let draft = $state<EntryInput>({
     type_key: 'note', title: '', body: '', values: {}, tags: []
@@ -57,12 +70,38 @@
   const selected = $derived(entries.find((entry) => entry.id === selectedId) ?? null);
   const activeType = $derived(types.find((type) => type.key === active) ?? null);
   const editType = $derived(types.find((type) => type.key === draft.type_key) ?? null);
+  const liveEntries = $derived(entries.filter((entry) => entry.deleted_at === null));
+  const currentView = $derived(views.find((view) => view.id === currentViewId) ?? views[0] ?? null);
+  const relationIndex = $derived.by(() => {
+    const index: RelationIndex = {};
+    const titles = new Map(entries.map((entry) => [entry.id, entry.title]));
+    for (const relation of allRelations) {
+      if (!relation.definition_id) continue;
+      const field = `relation:${relation.definition_id}`;
+      for (const [id, otherId] of [[relation.source_id, relation.target_id], [relation.target_id, relation.source_id]]) {
+        const title = titles.get(otherId);
+        if (!title) continue;
+        index[id] ??= {};
+        index[id][field] ??= [];
+        index[id][field].push(title);
+      }
+    }
+    return index;
+  });
+  const tableGroups = $derived(activeType && currentView ? applyTableView(liveEntries.filter((entry) => entry.type_key === activeType.key), currentView.config, listQuery, relationIndex) : []);
+  const tableCount = $derived(tableGroups.reduce((total, group) => total + group.rows.length, 0));
+  const applicableDefinitions = $derived(selected ? definitions.filter((item) => item.source_type === selected.type_key || item.target_type === selected.type_key) : []);
+  const chosenDefinition = $derived(definitions.find((item) => item.id === relationDraft.definition_id) ?? null);
+  const relationTargetType = $derived(selected && chosenDefinition ? (chosenDefinition.source_type === selected.type_key ? chosenDefinition.target_type : chosenDefinition.source_type) : null);
+  const viewKind = $derived(types.find((kind) => kind.key === viewDraft?.type_key) ?? null);
+  const viewFields = $derived(viewKind ? ['title', 'body', ...viewKind.fields.map((field) => field.key),
+    ...definitions.filter((definition) => definition.source_type === viewKind.key || definition.target_type === viewKind.key)
+      .map((definition) => `relation:${definition.id}`), 'tags', 'updated_at'] : []);
   const orderedTypes = $derived([...types].sort((a, b) => {
     const aIndex = sidebarOrder.indexOf(a.key);
     const bIndex = sidebarOrder.indexOf(b.key);
     return (aIndex < 0 ? 999 : aIndex) - (bIndex < 0 ? 999 : bIndex) || a.label.localeCompare(b.label);
   }));
-  const liveEntries = $derived(entries.filter((entry) => entry.deleted_at === null));
   const visibleEntries = $derived.by(() => {
     let pool = active === 'trash'
       ? entries.filter((entry) => entry.deleted_at !== null)
@@ -100,7 +139,7 @@
     loading = true;
     error = '';
     try {
-      [types, entries] = await Promise.all([api.listTypes(), api.listRecords(undefined, true)]);
+      [types, entries, definitions, allRelations, pendingActions] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations(), api.listAgentActions()]);
       const savedOrder = await api.getSetting<string[]>('sidebar_order');
       if (Array.isArray(savedOrder)) sidebarOrder = savedOrder.filter((key): key is string => typeof key === 'string');
       aiConfig = await api.getAiConfig();
@@ -126,7 +165,22 @@
     active = next;
     selectedId = null;
     listQuery = '';
+    if (types.some((type) => type.key === next)) void loadViews(next);
     window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  async function loadViews(typeKey: string) {
+    views = [];
+    currentViewId = '';
+    try {
+      const loaded = await api.listViews(typeKey);
+      if (active === typeKey) {
+        views = loaded;
+        currentViewId = loaded[0]?.id ?? '';
+      }
+    } catch (cause) {
+      error = message(cause);
+    }
   }
 
   async function choose(entry: Entry) {
@@ -189,7 +243,7 @@
         ? entries.map((entry) => entry.id === saved.id ? saved : entry)
         : [saved, ...entries];
       editorOpen = false;
-      if (active === 'home' || active === 'trash') active = saved.type_key;
+      if (active === 'home' || active === 'trash') navigate(saved.type_key);
       await choose(saved);
       notify(draft.id ? 'Record updated' : 'Record created');
     } catch (cause) {
@@ -217,26 +271,33 @@
   }
 
   function startRelation(entry: Entry) {
+    const first = definitions.find((item) => item.source_type === entry.type_key || item.target_type === entry.type_key);
     relationDraft = {
       source_id: entry.id,
       target_id: '',
-      kind: 'related_to',
+      kind: first?.name ?? '',
       role: null,
       position: null,
       start_date: null,
-      end_date: null
+      end_date: null,
+      definition_id: first?.id ?? null
     };
+    error = '';
     relationOpen = true;
   }
 
   async function saveRelation() {
-    if (!relationDraft.target_id) {
-      error = 'Choose a target record.';
+    if (!selected || !chosenDefinition || !relationDraft.target_id) {
+      error = 'Choose a relationship and a matching record.';
       return;
     }
     try {
-      await api.putRelation(relationDraft);
-      relations = await api.listRelations(relationDraft.source_id);
+      const sourceIsCurrent = chosenDefinition.source_type === selected.type_key;
+      await api.putRelation({ ...relationDraft, kind: chosenDefinition.name,
+        source_id: sourceIsCurrent ? selected.id : relationDraft.target_id,
+        target_id: sourceIsCurrent ? relationDraft.target_id : selected.id });
+      relations = await api.listRelations(selected.id);
+      allRelations = await api.listAllRelations();
       relationOpen = false;
       notify('Relation added');
     } catch (cause) {
@@ -249,6 +310,7 @@
     try {
       await api.deleteRelation(id);
       relations = relations.filter((relation) => relation.id !== id);
+      allRelations = allRelations.filter((relation) => relation.id !== id);
       notify('Relation removed');
     } catch (cause) {
       error = message(cause);
@@ -286,12 +348,111 @@
       const saved = await api.putType(updated);
       types = types.map((type) => type.key === saved.key ? saved : type);
       editingType = saved;
+      if (active === saved.key) {
+        const previouslySelected = currentViewId;
+        views = await api.listViews(saved.key);
+        currentViewId = views.some((view) => view.id === previouslySelected) ? previouslySelected : views[0]?.id ?? '';
+      }
       newField = { key: '', label: '', kind: 'text', required: false };
       newFieldOptions = '';
       notify('Field added');
     } catch (cause) {
       error = message(cause);
     }
+  }
+
+  function startNewType() {
+    newTypeLabel = '';
+    newTypeKey = '';
+    newTypeIcon = 'file';
+    error = '';
+    newTypeOpen = true;
+  }
+
+  async function saveNewType() {
+    const key = (newTypeKey.trim() || newTypeLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')).replace(/^_+|_+$/g, '');
+    if (!key || !newTypeLabel.trim()) { error = 'Name and key are required.'; return; }
+    try {
+      const saved = await api.putType({ key, label: newTypeLabel.trim(), icon: newTypeIcon, fields: [], built_in: false });
+      types = [...types, saved];
+      sidebarOrder = [...sidebarOrder, saved.key];
+      await api.putSetting('sidebar_order', sidebarOrder);
+      newTypeOpen = false;
+      navigate(saved.key);
+      notify('Entity type created');
+    } catch (cause) { error = message(cause); }
+  }
+
+  function startDefinition(sourceType?: string) {
+    definitionDraft = { id: null, source_type: sourceType ?? activeType?.key ?? 'lab', target_type: 'university', name: '', inverse_name: '' };
+    error = '';
+    definitionOpen = true;
+  }
+
+  async function saveDefinition() {
+    try {
+      const saved = await api.putRelationDefinition(definitionDraft);
+      definitions = [...definitions, saved];
+      if (activeType && (saved.source_type === activeType.key || saved.target_type === activeType.key)) {
+        const previous = currentViewId;
+        views = await api.listViews(activeType.key);
+        currentViewId = views.some((view) => view.id === previous) ? previous : views[0]?.id ?? '';
+      }
+      definitionOpen = false;
+      notify('Relationship added');
+    } catch (cause) { error = message(cause); }
+  }
+
+  function cloneViewConfig(config: ViewConfig): ViewConfig {
+    return { columns: [...config.columns], filters: config.filters.map((rule) => ({ ...rule })),
+      sorts: config.sorts.map((rule) => ({ ...rule })), group_by: config.group_by };
+  }
+
+  function startViewEditor(view?: TableView) {
+    if (!activeType) return;
+    const base = view ?? views[0];
+    viewDraft = { id: view?.id ?? null, type_key: activeType.key,
+      name: view?.name ?? 'New view',
+      config: cloneViewConfig(base?.config ?? { columns: ['title'], filters: [], sorts: [], group_by: null }) };
+    error = '';
+  }
+
+  async function saveView() {
+    if (!viewDraft) return;
+    try {
+      const saved = await api.putView(viewDraft);
+      views = [...views.filter((view) => view.id !== saved.id), saved];
+      currentViewId = saved.id;
+      viewDraft = null;
+      notify('View saved');
+    } catch (cause) { error = message(cause); }
+  }
+
+  async function removeView() {
+    if (!viewDraft?.id || !await confirmAction('Delete this saved view? Records will stay unchanged.')) return;
+    try {
+      await api.deleteView(viewDraft.id);
+      views = views.filter((view) => view.id !== viewDraft?.id);
+      currentViewId = views[0]?.id ?? '';
+      viewDraft = null;
+      notify('View deleted');
+    } catch (cause) { error = message(cause); }
+  }
+
+  function toggleViewColumn(column: string) {
+    if (!viewDraft || column === 'title') return;
+    viewDraft.config.columns = viewDraft.config.columns.includes(column)
+      ? viewDraft.config.columns.filter((field) => field !== column)
+      : [...viewDraft.config.columns, column];
+  }
+
+  function fieldLabel(type: RecordType, field: string): string {
+    if (field.startsWith('relation:')) {
+      const definition = definitions.find((item) => item.id === field.slice('relation:'.length));
+      return definition ? (definition.source_type === type.key ? definition.name : definition.inverse_name) : 'Relationship';
+    }
+    return ({ title: 'Title', body: 'Notes', tags: 'Tags', updated_at: 'Updated' } as Record<string, string>)[field]
+      ?? type.fields.find((item) => item.key === field)?.label ?? field;
   }
 
   async function previewImport() {
@@ -358,24 +519,18 @@
     }
   }
 
-  function toggleContext(id: string) {
-    assistantContext = assistantContext.includes(id)
-      ? assistantContext.filter((entry) => entry !== id)
-      : assistantContext.length < 10 ? [...assistantContext, id] : assistantContext;
-  }
-
   async function askAssistant() {
     error = '';
     assistantBusy = true;
     try {
       assistantResult = await api.askAssistant({
         question: assistantPrompt,
-        context_ids: assistantContext,
         allow_cloud: allowCloud
       });
-      if (assistantResult.suggestions.some((item) => item.status === 'applied')) {
-        entries = await api.listRecords(undefined, true);
+      if (assistantResult.actions.some((item) => item.action.status === 'applied')) {
+        [types, entries, definitions, allRelations] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations()]);
       }
+      pendingActions = await api.listAgentActions();
     } catch (cause) {
       error = message(cause);
     } finally {
@@ -383,19 +538,27 @@
     }
   }
 
-  async function approveSuggestion(index: number) {
-    const result = assistantResult?.suggestions[index];
-    if (!result || result.status !== 'pending') return;
-    if (!inDesktop && !await confirmAction(`Apply the AI suggestion to ${result.suggestion.title}?`)) return;
+  async function approveAction(action: AgentAction) {
+    if (action.status !== 'pending') return;
+    if (!inDesktop && !await confirmAction(`Apply AI action ${action.tool}? Review its arguments first.`)) return;
     error = '';
     try {
-      await api.approveAiSuggestion(result.suggestion);
-      result.status = 'applied';
-      entries = await api.listRecords(undefined, true);
-      notify('AI suggestion applied');
+      const outcome = await api.approveAgentAction(action.id);
+      if (assistantResult) assistantResult.actions = assistantResult.actions.map((item) => item.action.id === action.id ? outcome : item);
+      [types, entries, definitions, allRelations, pendingActions] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations(), api.listAgentActions()]);
+      if (activeType) void loadViews(activeType.key);
+      notify(outcome.action.status === 'applied' ? 'AI action applied' : outcome.action.error ?? 'AI action failed');
     } catch (cause) {
       error = message(cause);
     }
+  }
+
+  async function rejectAction(action: AgentAction) {
+    try {
+      await api.rejectAgentAction(action.id);
+      pendingActions = await api.listAgentActions();
+      notify('AI action rejected');
+    } catch (cause) { error = message(cause); }
   }
 
   async function connectGmail() {
@@ -478,11 +641,12 @@
   }
 
   function recordIcon(key: string) {
+    const icon = types.find((type) => type.key === key)?.icon ?? key;
     return ({
-      university: Building2, lab: FlaskConical, person: UserRound, program: GraduationCap,
-      application: FolderKanban, publication: BookText, project: Layers3,
-      mail: Mail, document: FileText, note: StickyNote
-    } as Record<string, typeof Home>)[key] ?? FileText;
+      building: Building2, flask: FlaskConical, user: UserRound, graduation: GraduationCap,
+      folder: FolderKanban, book: BookText, layers: Layers3,
+      mail: Mail, file: FileText, note: StickyNote
+    } as Record<string, typeof Home>)[icon] ?? FileText;
   }
 
   async function moveType(source: string, target: string) {
@@ -616,7 +780,7 @@
         {#if liveEntries.length}
           <div class="record-grid">
             {#each [...liveEntries].sort((a, b) => b.updated_at - a.updated_at).slice(0, 3) as entry}
-              <button class="record-card" onclick={() => { active = entry.type_key; void choose(entry); }}>
+              <button class="record-card" onclick={() => { navigate(entry.type_key); void choose(entry); }}>
                 <span class="record-type"><span class="type-dot"></span>{typeLabel(entry.type_key)}</span>
                 <h3>{entry.title}</h3>
                 <p>{entry.body.slice(0, 95) || 'No description yet'}{entry.body.length > 95 ? '…' : ''}</p>
@@ -630,7 +794,7 @@
           <div class="section-heading"><h2>Upcoming deadlines</h2><span>From your applications</span></div>
           <div class="list-panel">
             {#each upcoming as entry}
-              <button class="record-row" onclick={() => { active = 'application'; void choose(entry); }}>
+              <button class="record-row" onclick={() => { navigate('application'); void choose(entry); }}>
                 <span><span class="title">{entry.title}</span><span class="sub">{String(entry.values.intake ?? 'Application')}</span></span>
                 <span class="meta">{String(entry.values.deadline)}</span>
                 <span class="kind">{String(entry.values.status ?? 'planning')}</span>
@@ -640,33 +804,31 @@
           </div>
         {/if}
       {:else if !loading && active === 'assistant'}
-        <div class="page-head"><div><div class="section-kicker"><Sparkles size={14} /> Native AI</div><h1>Research assistant</h1><p>Choose exactly which records the assistant may read. Suggestions follow your trust mode.</p></div><button class="secondary-button" onclick={() => navigate('settings')}><Settings2 size={14} /> Provider settings</button></div>
+        <div class="page-head"><div><div class="section-kicker"><Sparkles size={14} /> Native AI</div><h1>Research assistant</h1><p>The agent can inspect every entity type through bounded tools. Writes follow your per-type permissions.</p></div><button class="secondary-button" onclick={() => navigate('settings')}><Settings2 size={14} /> Provider settings</button></div>
         <div class="assistant-layout">
           <section class="assistant-card">
             <div class="assistant-provider"><span class="record-type"><span class="type-dot"></span>{aiConfig.provider === 'ollama' ? 'Ollama · local' : 'OpenRouter · cloud'}</span><span class="muted">{aiConfig.model || 'Choose a model in Settings'} · {aiConfig.trust_mode} mode</span></div>
-            <label class="form-field wide"><span>What would you like to work on?</span><textarea bind:value={assistantPrompt} placeholder="Ask about a program, summarize selected records, or request a draft note."></textarea></label>
+            <label class="form-field wide"><span>What would you like to work on?</span><textarea bind:value={assistantPrompt} placeholder="Compare programs, find a contact, or ask the agent to update records."></textarea></label>
             {#if aiConfig.provider === 'openrouter'}
-              <label class="cloud-consent"><input type="checkbox" bind:checked={allowCloud} /> Send my question and the selected records below to OpenRouter for this request.</label>
+              <label class="cloud-consent"><input type="checkbox" bind:checked={allowCloud} /> For this request, allow the agent to send any records or imported files it reads to OpenRouter.</label>
             {/if}
             <button class="primary-button" disabled={assistantBusy || !assistantPrompt.trim() || !aiConfig.model || (aiConfig.provider === 'openrouter' && !allowCloud)} onclick={askAssistant}><Sparkles size={15} /> {assistantBusy ? 'Thinking…' : 'Ask assistant'}</button>
             {#if error}<div class="error-box" role="alert">{error}</div>{/if}
             {#if assistantResult}
-              <div class="assistant-answer"><div class="section-kicker">Response</div><p>{assistantResult.answer}</p><span class="muted" style="font-size:10px">{assistantResult.provider} · {assistantResult.model} · {assistantResult.shared_record_ids.length} records shared</span></div>
-              {#each assistantResult.suggestions as item, index}
-                <div class="suggestion-card"><div class="section-kicker">Suggested {item.suggestion.operation}</div><h3>{item.suggestion.title}</h3><p>{item.suggestion.body || 'No body text'}</p>{#if Object.keys(item.suggestion.values).length}<pre>{JSON.stringify(item.suggestion.values, null, 2)}</pre>{/if}{#if item.suggestion.tags.length}<p>Tags: {item.suggestion.tags.join(', ')}</p>{/if}<span class="muted">{item.suggestion.type_key} · {item.status}</span>{#if item.note}<div class="error-box">{item.note}</div>{/if}{#if item.status === 'pending'}<button class="secondary-button" onclick={() => approveSuggestion(index)}>Review and apply</button>{/if}</div>
-              {/each}
+              <div class="assistant-answer"><div class="section-kicker">Response</div><p>{assistantResult.answer}</p><span class="muted" style="font-size:10px">{assistantResult.provider} · {assistantResult.model} · {assistantResult.read_calls} reads · {assistantResult.write_calls} writes</span></div>
+              {#each assistantResult.actions as outcome}<div class="suggestion-card"><div class="section-kicker">{outcome.action.status} · {outcome.action.tool.replaceAll('_', ' ')}</div><pre>{JSON.stringify(outcome.action.arguments, null, 2)}</pre>{#if outcome.action.error}<div class="error-box">{outcome.action.error}</div>{/if}</div>{/each}
             {/if}
           </section>
           <aside class="assistant-context">
-            <div class="section-kicker">Shared context</div><h3>Select records</h3><p>Only checked records are included in this request. Up to 10.</p>
-            {#each liveEntries as entry}
-              <label class="context-row"><input type="checkbox" checked={assistantContext.includes(entry.id)} onchange={() => toggleContext(entry.id)} /><span>{entry.title}<small>{typeLabel(entry.type_key)}</small></span></label>
-            {/each}
-            {#if !liveEntries.length}<p class="muted">Create a record to give the assistant local context.</p>{/if}
+            <div class="section-kicker">Database access</div><h3>{liveEntries.length} records available</h3><p>The agent reads through paginated tools. It cannot send mail or permanently delete records.</p>
+            <div class="permission-summary"><strong>Unrestricted writes</strong><span>{aiConfig.trust_mode === 'delegated' && aiConfig.delegated_types.length ? aiConfig.delegated_types.map(typeLabel).join(', ') : 'None'}</span><small>All other entity types require approval.</small></div>
+            <div class="section-heading"><h3>Pending approval</h3><span>{pendingActions.length}</span></div>
+            {#each pendingActions as action (action.id)}<div class="pending-action"><strong>{action.tool.replaceAll('_', ' ')}</strong><small>{action.target_types.map(typeLabel).join(', ') || 'New entity type'} · {action.status}</small><pre>{JSON.stringify(action.arguments, null, 2)}</pre>{#if action.status === 'pending'}<div><button class="secondary-button" onclick={() => approveAction(action)}>Approve</button><button class="secondary-button danger-button" onclick={() => rejectAction(action)}>Reject</button></div>{:else}<p>Application was interrupted. Inspect the database before retrying.</p>{/if}</div>{/each}
+            {#if !pendingActions.length}<p class="muted">No changes are waiting for approval.</p>{/if}
           </aside>
         </div>
       {:else if !loading && active === 'settings'}
-        <div class="page-head"><div><div class="section-kicker">Shape your workspace</div><h1>Settings & fields</h1><p>Give each record type the fields you actually use.</p></div></div>
+        <div class="page-head"><div><div class="section-kicker">Shape your workspace</div><h1>Settings & fields</h1><p>Define entity types, their fields and relationships.</p></div><button class="primary-button" onclick={startNewType}><Plus size={15} /> New entity type</button></div>
         <div class="section-heading first-section-heading"><h2>Record fields</h2><span>Choose a type to add a field</span></div>
         <div class="list-panel settings-fields-list">
           {#each orderedTypes as type}
@@ -674,6 +836,12 @@
               <span><span class="title">{type.label}</span><span class="sub">{type.key}</span></span>
               <span class="meta">{type.fields.length} {type.fields.length === 1 ? 'field' : 'fields'}</span><span></span><ChevronRight size={15} />
             </button>
+          {/each}
+        </div>
+        <div class="section-heading"><h2>Relationships</h2><button class="secondary-button" onclick={() => startDefinition()}><Plus size={14} /> Define relationship</button></div>
+        <div class="list-panel relationship-definitions">
+          {#each definitions as definition (definition.id)}
+            <div class="relationship-definition-row"><span><strong>{typeLabel(definition.source_type)}</strong> <ArrowRight size={13} /> <strong>{typeLabel(definition.target_type)}</strong></span><span>{definition.name} <small>↔ {definition.inverse_name}</small></span></div>
           {/each}
         </div>
         <div class="settings-card">
@@ -706,13 +874,13 @@
           {/if}
         </div>
         <div class="settings-card">
-          <div><div class="section-kicker">Your choice of model</div><h2>Assistant provider</h2><p>Ollama keeps prompts on this device. OpenRouter sends each confirmed request to your selected cloud model. Keys are stored in the OS credential store.</p></div>
+          <div><div class="section-kicker">Your choice of model</div><h2>Assistant provider</h2><p>The agent can browse records and imported files through bounded tools. Ollama stays local; each OpenRouter request needs explicit consent to share the data it reads. Keys stay in the OS credential store.</p></div>
           <div class="ai-settings-grid">
             <label class="form-field"><span>Provider</span><select bind:value={aiConfig.provider} onchange={() => { aiConfig.model = ''; allowCloud = false; }}><option value="ollama">Ollama (local)</option><option value="openrouter">OpenRouter (cloud)</option></select></label>
             <label class="form-field"><span>Model name</span><input bind:value={aiConfig.model} placeholder={aiConfig.provider === 'ollama' ? 'e.g. llama3.2' : 'e.g. openrouter/free'} /></label>
-            <label class="form-field"><span>Trust mode</span><select bind:value={aiConfig.trust_mode}><option value="controlled">Controlled — review every write</option><option value="delegated">Delegated — chosen types can be changed</option></select></label>
+            <label class="form-field"><span>Write permissions</span><select bind:value={aiConfig.trust_mode}><option value="controlled">Review every write</option><option value="delegated">Unrestricted for chosen types</option></select></label>
             {#if aiConfig.trust_mode === 'delegated'}
-              <div class="form-field wide"><span>Types the assistant may change without review</span><div class="delegated-types">{#each types as type}<label><input type="checkbox" checked={aiConfig.delegated_types.includes(type.key)} onchange={() => aiConfig.delegated_types = aiConfig.delegated_types.includes(type.key) ? aiConfig.delegated_types.filter((key) => key !== type.key) : [...aiConfig.delegated_types, type.key]} />{type.label}</label>{/each}</div></div>
+              <div class="form-field wide"><span>Entity types with unrestricted writes (all others stay gated)</span><div class="delegated-types">{#each orderedTypes as type}<label><input type="checkbox" checked={aiConfig.delegated_types.includes(type.key)} onchange={() => aiConfig.delegated_types = aiConfig.delegated_types.includes(type.key) ? aiConfig.delegated_types.filter((key) => key !== type.key) : [...aiConfig.delegated_types, type.key]} />{type.label}</label>{/each}</div></div>
             {/if}
             {#if aiConfig.provider === 'openrouter'}
               <label class="form-field wide"><span>OpenRouter API key {keyConfigured ? '(configured)' : ''}</span><input type="password" autocomplete="off" bind:value={openrouterKey} placeholder="Paste a key; it will not appear in exports" /></label>
@@ -755,17 +923,35 @@
           <div>
             <div class="section-kicker">{active === 'trash' ? 'Recoverable records' : 'Your research collection'}</div>
             <h1>{activeType?.label ?? (active === 'all' ? 'All records' : active === 'search' ? 'Search results' : 'Trash')}</h1>
-            <p>{visibleEntries.length} {visibleEntries.length === 1 ? 'record' : 'records'} in this view</p>
+            <p>{activeType ? tableCount : visibleEntries.length} {(activeType ? tableCount : visibleEntries.length) === 1 ? 'record' : 'records'} in this view</p>
           </div>
           {#if activeType}<button class="secondary-button" onclick={() => startFieldEditor(activeType)}><Settings2 size={15} /> Fields</button>{/if}
         </div>
         <div class:detail-layout={selected} class="list-layout">
           <div class="list-panel">
+            {#if activeType}
+              <div class="view-tabs" aria-label="Saved table views">
+                {#each views as view (view.id)}<button class:active={currentView?.id === view.id} onclick={() => { currentViewId = view.id; selectedId = null; }}>{view.name}</button>{/each}
+                <button class="view-add" onclick={() => startViewEditor()}><Plus size={14} /> New view</button>
+              </div>
+            {/if}
             <div class="list-toolbar">
               <label class="small-search"><Search size={15} /><input placeholder="Filter this view..." aria-label="Filter this view" bind:value={listQuery} /></label>
-              <span class="muted" style="font-size:11px">{visibleEntries.length} shown</span>
+              {#if activeType && currentView && !currentView.is_default}<button class="secondary-button" onclick={() => startViewEditor(currentView)}><SlidersHorizontal size={14} /> Configure view</button>{/if}
+              <span class="muted" style="font-size:11px">{activeType ? tableCount : visibleEntries.length} shown</span>
             </div>
-            {#if visibleEntries.length}
+            {#if activeType && currentView && tableCount}
+              <div class="table-scroll">
+                {#each tableGroups as group (group.key)}
+                  {#if currentView.config.group_by}<div class="table-group-heading">{group.key} <span>{group.rows.length}</span></div>{/if}
+                  <table class="entity-table"><thead><tr>{#each currentView.config.columns as column}<th>{fieldLabel(activeType, column)}</th>{/each}</tr></thead>
+                    <tbody>{#each group.rows as entry (entry.id)}<tr class:selected={selectedId === entry.id}>
+                      {#each currentView.config.columns as column}<td>{#if column === 'title'}<button class="table-title" onclick={() => choose(entry)}>{entry.title}</button>{:else}{displayValue(cellValue(entry, column, relationIndex))}{/if}</td>{/each}
+                    </tr>{/each}</tbody>
+                  </table>
+                {/each}
+              </div>
+            {:else if !activeType && visibleEntries.length}
               {#each visibleEntries as entry}
                 <button class:selected={selectedId === entry.id} class="record-row" onclick={() => choose(entry)}>
                   <span><span class="title">{entry.title}</span><span class="sub">{entry.body.slice(0, 68) || 'No description'}</span></span>
@@ -778,7 +964,7 @@
               <div class="empty-state">
                 <BookOpen size={26} />
                 <h3>{active === 'trash' ? 'Trash is empty' : 'Nothing here yet'}</h3>
-                <p>{active === 'trash' ? 'Deleted records can be restored here.' : 'Create a record or change your filter.'}</p>
+                <p>{active === 'trash' ? 'Deleted records can be restored here.' : activeType && currentView?.config.filters.length ? 'No records match this view. Adjust its filters or create a record.' : 'Create a record or change your filter.'}</p>
                 {#if active !== 'trash'}<button class="secondary-button" onclick={() => startCreate()}>Create a record</button>{/if}
               </div>
             {/if}
@@ -804,7 +990,8 @@
                 {#each relations as relation}
                   {@const otherId = relation.source_id === selected.id ? relation.target_id : relation.source_id}
                   {@const other = entries.find((entry) => entry.id === otherId)}
-                  <div class="relation-row"><span><strong>{other?.title ?? 'Missing record'}</strong> <span class="muted"> · {relation.role || relation.kind}{relation.start_date ? ` · ${relation.start_date}` : ''}{relation.end_date ? `–${relation.end_date}` : ''}</span></span><button aria-label="Remove relation" title="Remove relation" onclick={() => removeRelation(relation.id)}><X size={14} /></button></div>
+                  {@const definition = definitions.find((item) => item.id === relation.definition_id)}
+                  <div class="relation-row"><span><strong>{other?.title ?? 'Missing record'}</strong> <span class="muted"> · {definition ? (relation.source_id === selected.id ? definition.name : definition.inverse_name) : relation.kind}{relation.role ? ` · ${relation.role}` : ''}{relation.start_date ? ` · ${relation.start_date}` : ''}{relation.end_date ? `–${relation.end_date}` : ''}</span></span><button aria-label="Remove relation" title="Remove relation" onclick={() => removeRelation(relation.id)}><X size={14} /></button></div>
                 {/each}
               {:else}
                 <p class="muted" style="font-size:12px">No connected records yet.</p>
@@ -812,7 +999,7 @@
               <div class="actions">
                 {#if selected.deleted_at === null}
                   <button class="secondary-button" onclick={() => startEdit(selected)}>Edit record</button>
-                  <button class="secondary-button" onclick={() => { assistantContext = [selected.id]; navigate('assistant'); }}><Sparkles size={14} /> Ask assistant</button>
+                  <button class="secondary-button" onclick={() => { assistantPrompt = `Tell me about record ${selected.id} (${selected.title}).`; navigate('assistant'); }}><Sparkles size={14} /> Ask assistant</button>
                   <button class="secondary-button danger-button" onclick={() => toggleDeleted(selected)}><Trash2 size={14} /> Move to Trash</button>
                 {:else}
                   <button class="secondary-button" onclick={() => toggleDeleted(selected)}><ArrowLeft size={14} /> Restore</button>
@@ -863,15 +1050,17 @@
   <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) relationOpen = false; }}>
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Link records">
       <div class="dialog-head"><div><div class="section-kicker">Connect the dots</div><h2>Link a record</h2></div><button class="icon-button" aria-label="Close" onclick={() => relationOpen = false}><X size={18} /></button></div>
+      {#if applicableDefinitions.length}
       <div class="form-grid">
-        <label class="form-field wide"><span>Target record</span><select bind:value={relationDraft.target_id}><option value="">Choose a record</option>{#each liveEntries.filter((item) => item.id !== relationDraft.source_id) as entry}<option value={entry.id}>{entry.title} · {typeLabel(entry.type_key)}</option>{/each}</select></label>
-        <label class="form-field"><span>Connection</span><input bind:value={relationDraft.kind} placeholder="related_to" /></label>
+        <label class="form-field wide"><span>Relationship type</span><select value={relationDraft.definition_id ?? ''} onchange={(event) => { relationDraft.definition_id = event.currentTarget.value; relationDraft.target_id = ''; }}><option value="">Choose a relationship</option>{#each applicableDefinitions as definition}<option value={definition.id}>{definition.source_type === selected?.type_key ? definition.name : definition.inverse_name} → {typeLabel(definition.source_type === selected?.type_key ? definition.target_type : definition.source_type)}</option>{/each}</select></label>
+        <label class="form-field wide"><span>Related {relationTargetType ? typeLabel(relationTargetType) : 'record'}</span><select bind:value={relationDraft.target_id}><option value="">Choose a record</option>{#each liveEntries.filter((item) => item.id !== selected?.id && item.type_key === relationTargetType) as entry}<option value={entry.id}>{entry.title}</option>{/each}</select></label>
         <label class="form-field"><span>Role (optional)</span><input value={relationDraft.role ?? ''} oninput={(event) => relationDraft.role = event.currentTarget.value || null} placeholder="e.g. PI, author, member" /></label>
         <label class="form-field"><span>Start date (optional)</span><input type="date" value={relationDraft.start_date ?? ''} oninput={(event) => relationDraft.start_date = event.currentTarget.value || null} /></label>
         <label class="form-field"><span>End date (optional)</span><input type="date" value={relationDraft.end_date ?? ''} oninput={(event) => relationDraft.end_date = event.currentTarget.value || null} /></label>
       </div>
+      {:else}<p class="muted">No relationship is defined for this entity type yet.</p><button class="secondary-button" onclick={() => { relationOpen = false; startDefinition(selected?.type_key); }}>Define a relationship</button>{/if}
       {#if error}<div class="error-box" role="alert">{error}</div>{/if}
-      <div class="dialog-footer"><button class="secondary-button" onclick={() => relationOpen = false}>Cancel</button><button class="primary-button" onclick={saveRelation}>Add connection</button></div>
+      <div class="dialog-footer"><button class="secondary-button" onclick={() => relationOpen = false}>Cancel</button>{#if applicableDefinitions.length}<button class="primary-button" onclick={saveRelation}>Add connection</button>{/if}</div>
     </div>
   </div>
 {/if}
@@ -894,6 +1083,58 @@
       </div>
       {#if error}<div class="error-box" role="alert">{error}</div>{/if}
       <div class="dialog-footer"><button class="secondary-button" onclick={() => editingType = null}>Done</button><button class="primary-button" onclick={addField}><Plus size={15} /> Add field</button></div>
+    </div>
+  </div>
+{/if}
+
+{#if newTypeOpen}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) newTypeOpen = false; }}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Create entity type">
+      <div class="dialog-head"><div><div class="section-kicker">Your own database</div><h2>New entity type</h2></div><button class="icon-button" aria-label="Close" onclick={() => newTypeOpen = false}><X size={18} /></button></div>
+      <p class="muted">Create a collection with its own fields, table views and relationships.</p>
+      <div class="form-grid">
+        <label class="form-field"><span>Name (plural)</span><input bind:value={newTypeLabel} placeholder="e.g. Scholarships" /></label>
+        <label class="form-field"><span>Key (optional)</span><input bind:value={newTypeKey} placeholder="e.g. scholarship" /></label>
+        <label class="form-field"><span>Icon</span><select bind:value={newTypeIcon}><option value="file">Document</option><option value="building">Institution</option><option value="flask">Lab</option><option value="user">Person</option><option value="graduation">Education</option><option value="folder">Folder</option><option value="book">Book</option><option value="layers">Project</option><option value="mail">Mail</option><option value="note">Note</option></select></label>
+      </div>
+      {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+      <div class="dialog-footer"><button class="secondary-button" onclick={() => newTypeOpen = false}>Cancel</button><button class="primary-button" onclick={saveNewType}>Create type</button></div>
+    </div>
+  </div>
+{/if}
+
+{#if definitionOpen}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) definitionOpen = false; }}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Define relationship">
+      <div class="dialog-head"><div><div class="section-kicker">Entity schema</div><h2>Define relationship</h2></div><button class="icon-button" aria-label="Close" onclick={() => definitionOpen = false}><X size={18} /></button></div>
+      <p class="muted">Records of these types can then be linked. Each record may have multiple links.</p>
+      <div class="form-grid">
+        <label class="form-field"><span>From type</span><select bind:value={definitionDraft.source_type}>{#each orderedTypes as kind}<option value={kind.key}>{kind.label}</option>{/each}</select></label>
+        <label class="form-field"><span>To type</span><select bind:value={definitionDraft.target_type}>{#each orderedTypes as kind}<option value={kind.key}>{kind.label}</option>{/each}</select></label>
+        <label class="form-field"><span>Label from first type</span><input bind:value={definitionDraft.name} placeholder="e.g. Institutions" /></label>
+        <label class="form-field"><span>Label from second type</span><input bind:value={definitionDraft.inverse_name} placeholder="e.g. Labs" /></label>
+      </div>
+      {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+      <div class="dialog-footer"><button class="secondary-button" onclick={() => definitionOpen = false}>Cancel</button><button class="primary-button" onclick={saveDefinition}>Add relationship</button></div>
+    </div>
+  </div>
+{/if}
+
+{#if viewDraft && viewKind}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) viewDraft = null; }}>
+    <div class="dialog view-dialog" role="dialog" aria-modal="true" aria-label="Configure table view">
+      <div class="dialog-head"><div><div class="section-kicker">{viewKind.label} table</div><h2>{viewDraft.id ? 'Edit view' : 'New view'}</h2></div><button class="icon-button" aria-label="Close" onclick={() => viewDraft = null}><X size={18} /></button></div>
+      <label class="form-field"><span>View name</span><input bind:value={viewDraft.name} placeholder="e.g. Fall 2027 shortlist" /></label>
+      <div class="view-editor-section"><h3>Columns</h3><div class="view-column-options">{#each viewFields as field}<label><input type="checkbox" checked={viewDraft.config.columns.includes(field)} disabled={field === 'title'} onchange={() => toggleViewColumn(field)} />{fieldLabel(viewKind, field)}</label>{/each}</div></div>
+      <div class="view-editor-section"><div class="section-heading"><h3>Filters</h3><button class="secondary-button" onclick={() => viewDraft?.config.filters.push({ field: 'title', operator: 'contains', value: '' })}><Plus size={13} /> Add filter</button></div><p class="muted">Records must match every filter.</p>
+        {#each viewDraft.config.filters as filter, index}<div class="view-rule"><select bind:value={filter.field}>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select><select bind:value={filter.operator}><option value="contains">contains</option><option value="equals">equals</option><option value="not_equals">does not equal</option><option value="is_empty">is empty</option><option value="greater_than">greater than / after</option><option value="less_than">less than / before</option></select>{#if filter.operator !== 'is_empty'}<input bind:value={filter.value} placeholder="Value" />{/if}<button class="icon-button" aria-label="Remove filter" onclick={() => { if (viewDraft) viewDraft.config.filters = viewDraft.config.filters.filter((_, i) => i !== index); }}><X size={15} /></button></div>{/each}
+      </div>
+      <div class="view-editor-section"><div class="section-heading"><h3>Sort</h3><button class="secondary-button" onclick={() => viewDraft?.config.sorts.push({ field: 'title', direction: 'asc' })}><Plus size={13} /> Add sort</button></div>
+        {#each viewDraft.config.sorts as sort, index}<div class="view-rule"><select bind:value={sort.field}>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select><select bind:value={sort.direction}><option value="asc">Ascending</option><option value="desc">Descending</option></select><button class="icon-button" aria-label="Remove sort" onclick={() => { if (viewDraft) viewDraft.config.sorts = viewDraft.config.sorts.filter((_, i) => i !== index); }}><X size={15} /></button></div>{/each}
+      </div>
+      <div class="view-editor-section"><label class="form-field"><span>Group by</span><select value={viewDraft.config.group_by ?? ''} onchange={(event) => { if (viewDraft) viewDraft.config.group_by = event.currentTarget.value || null; }}><option value="">No grouping</option>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select></label></div>
+      {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+      <div class="dialog-footer">{#if viewDraft.id}<button class="secondary-button danger-button" onclick={removeView}>Delete view</button>{/if}<button class="secondary-button" onclick={() => viewDraft = null}>Cancel</button><button class="primary-button" onclick={saveView}>Save view</button></div>
     </div>
   </div>
 {/if}

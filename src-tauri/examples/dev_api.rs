@@ -7,8 +7,11 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, StatusCode, header::ORIGIN};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use eduport_lib::ai::{self, AiConfig, AskInput, Suggestion};
-use eduport_lib::db::{Db, RecordInput, RecordType, RelationInput};
+use eduport_lib::agent::{self, AskInput};
+use eduport_lib::ai::{self, AiConfig};
+use eduport_lib::db::{
+    Db, RecordInput, RecordType, RelationDefinitionInput, RelationInput, TableViewInput,
+};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -32,10 +35,11 @@ async fn main() {
         .route("/api/command", post(command))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(Arc::new(Mutex::new(db)));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:1422")
+    let api_port = std::env::var("EDUPORT_DEV_API_PORT").unwrap_or_else(|_| "1422".into());
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{api_port}"))
         .await
         .expect("bind local development API");
-    eprintln!("Eduport local SQLite API ready at 127.0.0.1:1422");
+    eprintln!("Eduport local SQLite API ready at 127.0.0.1:{api_port}");
     axum::serve(listener, app)
         .await
         .expect("serve local development API");
@@ -46,10 +50,12 @@ async fn command(
     headers: HeaderMap,
     Json(request): Json<CommandRequest>,
 ) -> (StatusCode, Json<Value>) {
+    let expected_origin =
+        std::env::var("EDUPORT_UI_ORIGIN").unwrap_or_else(|_| "http://127.0.0.1:1420".into());
     if headers
         .get(ORIGIN)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|origin| origin != "http://127.0.0.1:1420")
+        .is_some_and(|origin| origin != expected_origin)
     {
         return (
             StatusCode::FORBIDDEN,
@@ -58,7 +64,7 @@ async fn command(
     }
     let result = if request.command == "ask_assistant" {
         match argument::<AskInput>(&request.args, "input") {
-            Ok(input) => ai::ask(&state, input).await.and_then(as_value),
+            Ok(input) => agent::ask(&state, input).await.and_then(as_value),
             Err(error) => Err(error),
         }
     } else {
@@ -126,12 +132,33 @@ fn dispatch(db: &mut Db, command: &str, args: &Value) -> Result<Value, String> {
             db.list_relations(&argument::<String>(args, "id")?)
                 .map_err(|e| e.to_string())?,
         ),
+        "list_all_relations" => as_value(db.all_relations().map_err(|e| e.to_string())?),
         "put_relation" => as_value(
             db.put_relation(argument::<RelationInput>(args, "input")?)
                 .map_err(|e| e.to_string())?,
         ),
         "delete_relation" => as_value(
             db.delete_relation(&argument::<String>(args, "id")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "list_relation_definitions" => as_value(
+            db.list_relation_definitions(args.get("typeKey").and_then(Value::as_str))
+                .map_err(|e| e.to_string())?,
+        ),
+        "put_relation_definition" => as_value(
+            db.put_relation_definition(argument::<RelationDefinitionInput>(args, "input")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "list_views" => as_value(
+            db.list_views(&argument::<String>(args, "typeKey")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "put_view" => as_value(
+            db.put_view(argument::<TableViewInput>(args, "input")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "delete_view" => as_value(
+            db.delete_view(&argument::<String>(args, "id")?)
                 .map_err(|e| e.to_string())?,
         ),
         "get_setting" => as_value(
@@ -156,10 +183,9 @@ fn dispatch(db: &mut Db, command: &str, args: &Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
         "has_openrouter_key" => as_value(ai::has_openrouter_key()?),
-        "approve_ai_suggestion" => as_value(ai::apply_suggestion(
-            db,
-            &argument::<Suggestion>(args, "suggestion")?,
-        )?),
+        "list_agent_actions" => as_value(db.list_agent_actions().map_err(|e| e.to_string())?),
+        "approve_agent_action" => as_value(agent::approve(db, &argument::<String>(args, "id")?)?),
+        "reject_agent_action" => as_value(agent::reject(db, &argument::<String>(args, "id")?)?),
         "get_gmail_account" => {
             as_value(db.get_setting("gmail_account").map_err(|e| e.to_string())?)
         }

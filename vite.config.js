@@ -3,6 +3,8 @@ import { sveltekit } from "@sveltejs/kit/vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
+const devPort = Number(process.env.EDUPORT_DEV_PORT ?? 1420);
+const apiPort = Number(process.env.EDUPORT_DEV_API_PORT ?? 1422);
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
@@ -14,11 +16,11 @@ export default defineConfig(() => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    port: devPort,
     strictPort: true,
     host: host || "127.0.0.1",
     proxy: {
-      "/api": "http://127.0.0.1:1422"
+      "/api": `http://127.0.0.1:${apiPort}`
     },
     hmr: host
       ? {

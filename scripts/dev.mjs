@@ -8,9 +8,12 @@ const dataBase = platform() === 'darwin'
   : platform() === 'win32'
     ? process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
     : process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share');
-const dbPath = join(dataBase, 'io.github.rusenbb.eduport', 'eduport.sqlite');
+const dbPath = process.env.EDUPORT_DB_PATH ?? join(dataBase, 'io.github.rusenbb.eduport', 'eduport.sqlite');
+const uiPort = Number(process.env.EDUPORT_DEV_PORT ?? 1420);
+const apiPort = Number(process.env.EDUPORT_DEV_API_PORT ?? 1422);
+const healthUrl = `http://127.0.0.1:${apiPort}/health`;
 const cargoDir = join(root, 'src-tauri');
-const cargoEnv = { ...process.env, EDUPORT_DB_PATH: dbPath };
+const cargoEnv = { ...process.env, EDUPORT_DB_PATH: dbPath, EDUPORT_DEV_API_PORT: String(apiPort), EDUPORT_UI_ORIGIN: `http://127.0.0.1:${uiPort}` };
 const children = [];
 let stopping = false;
 
@@ -33,7 +36,7 @@ async function waitForApi(child) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('Local SQLite API stopped during startup.');
     try {
-      const response = await fetch('http://127.0.0.1:1422/health', { signal: AbortSignal.timeout(500) });
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
       if (response.ok) return;
     } catch { /* still starting */ }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -52,14 +55,14 @@ process.on('SIGTERM', shutdown);
 try {
   let apiRunning = false;
   try {
-    apiRunning = (await fetch('http://127.0.0.1:1422/health', { signal: AbortSignal.timeout(500) })).ok;
+    apiRunning = (await fetch(healthUrl, { signal: AbortSignal.timeout(500) })).ok;
   } catch { /* port is available */ }
-  if (apiRunning) throw new Error('Eduport local API is already running on port 1422. Stop the earlier development server first.');
+  if (apiRunning) throw new Error(`Eduport local API is already running on port ${apiPort}. Stop the earlier development server first.`);
   console.log('Building local SQLite API…');
   await waitForExit(run('cargo', ['build', '--example', 'dev_api'], { cwd: cargoDir, env: cargoEnv }));
   const api = run(join(cargoDir, 'target', 'debug', 'examples', platform() === 'win32' ? 'dev_api.exe' : 'dev_api'), [], { cwd: cargoDir, env: cargoEnv });
   await waitForApi(api);
-  const vite = run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'dev', '--host', '127.0.0.1'], { cwd: root });
+  const vite = run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'dev', '--host', '127.0.0.1', '--port', String(uiPort)], { cwd: root, env: cargoEnv });
   await waitForExit(vite);
 } catch (error) {
   console.error(error);

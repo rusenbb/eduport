@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::db::{Db, FieldDef, Record, RecordType, Relation};
+use crate::db::{Db, FieldDef, Record, RecordType, Relation, RelationDefinition, TableView};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,7 +31,9 @@ pub struct ImportPlan {
     pub preview: ImportPreview,
     types: Vec<RecordType>,
     records: Vec<Record>,
+    relation_definitions: Vec<RelationDefinition>,
     relations: Vec<Relation>,
+    views: Vec<TableView>,
     files: Vec<(String, Vec<u8>)>,
 }
 
@@ -39,7 +41,11 @@ pub struct ImportPlan {
 struct Manifest {
     version: u32,
     types: Vec<RecordType>,
+    #[serde(default)]
+    relation_definitions: Vec<RelationDefinition>,
     relations: Vec<Relation>,
+    #[serde(default)]
+    views: Vec<TableView>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,9 +86,13 @@ pub fn export_markdown(db: &Db, destination: &Path) -> Result<usize, String> {
 
     let records = db.list_records(None, true).map_err(|e| e.to_string())?;
     let manifest = Manifest {
-        version: 1,
+        version: 2,
         types: db.list_types().map_err(|e| e.to_string())?,
+        relation_definitions: db
+            .list_relation_definitions(None)
+            .map_err(|e| e.to_string())?,
         relations: db.all_relations().map_err(|e| e.to_string())?,
+        views: db.all_custom_views().map_err(|e| e.to_string())?,
     };
     fs::write(
         stage.path().join("eduport-export.yaml"),
@@ -145,7 +155,7 @@ fn scan_export(source: &Path) -> Result<ImportPlan, String> {
         &fs::read(source.join("eduport-export.yaml")).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    if manifest.version != 1 {
+    if !matches!(manifest.version, 1 | 2) {
         return Err(format!(
             "Unsupported Eduport export version {}.",
             manifest.version
@@ -191,8 +201,10 @@ fn scan_export(source: &Path) -> Result<ImportPlan, String> {
         source: source.to_path_buf(),
         preview,
         types: manifest.types,
+        relation_definitions: manifest.relation_definitions,
         records,
         relations: manifest.relations,
+        views: manifest.views,
         files,
     })
 }
@@ -305,8 +317,15 @@ pub fn apply(db: &mut Db, plan: ImportPlan) -> Result<usize, String> {
     if fresh.preview.fingerprint != plan.preview.fingerprint {
         return Err("Source changed after preview. Preview it again.".into());
     }
-    db.import_snapshot(&fresh.types, &fresh.records, &fresh.relations, &fresh.files)
-        .map_err(|e| e.to_string())?;
+    db.import_snapshot(
+        &fresh.types,
+        &fresh.records,
+        &fresh.relation_definitions,
+        &fresh.relations,
+        &fresh.views,
+        &fresh.files,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(fresh.records.len())
 }
 
@@ -543,6 +562,7 @@ fn scan_legacy(source: &Path, existing_types: &[RecordType]) -> Result<ImportPla
                 position,
                 start_date: None,
                 end_date: None,
+                definition_id: None,
             });
         } else {
             warnings.push(format!(
@@ -563,8 +583,10 @@ fn scan_legacy(source: &Path, existing_types: &[RecordType]) -> Result<ImportPla
         source: source.to_path_buf(),
         preview,
         types,
+        relation_definitions: Vec::new(),
         records,
         relations,
+        views: Vec::new(),
         files,
     })
 }
@@ -623,7 +645,10 @@ fn collect_wikilinks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{RecordInput, RelationInput};
+    use crate::db::{
+        FilterRule, RecordInput, RelationDefinitionInput, RelationInput, SortRule, TableViewInput,
+        ViewConfig,
+    };
 
     #[test]
     fn export_preview_import_round_trip_and_stale_source_rejection() {
@@ -651,15 +676,45 @@ mod tests {
                 expected_revision: None,
             })
             .unwrap();
+        let definition = source
+            .put_relation_definition(RelationDefinitionInput {
+                id: None,
+                source_type: "program".into(),
+                target_type: "lab".into(),
+                name: "Research labs".into(),
+                inverse_name: "Programs".into(),
+            })
+            .unwrap();
+        source
+            .put_view(TableViewInput {
+                id: None,
+                type_key: "program".into(),
+                name: "Masters".into(),
+                config: ViewConfig {
+                    columns: vec!["title".into(), "level".into()],
+                    filters: vec![FilterRule {
+                        field: "level".into(),
+                        operator: "equals".into(),
+                        value: "masters".into(),
+                    }],
+                    sorts: vec![SortRule {
+                        field: "title".into(),
+                        direction: "asc".into(),
+                    }],
+                    group_by: Some("level".into()),
+                },
+            })
+            .unwrap();
         source
             .put_relation(RelationInput {
                 source_id: program.id.clone(),
                 target_id: lab.id.clone(),
-                kind: "research_at".into(),
+                kind: String::new(),
                 role: None,
                 position: None,
                 start_date: None,
                 end_date: None,
+                definition_id: Some(definition.id.clone()),
             })
             .unwrap();
         let export = root.path().join("export");
@@ -682,6 +737,13 @@ mod tests {
         assert_eq!(apply(&mut recovered, plan).unwrap(), 2);
         assert_eq!(recovered.list_records(None, false).unwrap().len(), 3);
         assert_eq!(recovered.all_relations().unwrap().len(), 1);
+        assert_eq!(
+            recovered.all_relations().unwrap()[0]
+                .definition_id
+                .as_deref(),
+            Some(definition.id.as_str())
+        );
+        assert_eq!(recovered.list_views("program").unwrap().len(), 2);
         assert_eq!(
             recovered.get_record(&program.id).unwrap().unwrap().tags,
             vec!["reach"]

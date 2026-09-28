@@ -5,6 +5,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+mod relations_schema;
+mod views;
+pub use relations_schema::{RelationDefinition, RelationDefinitionInput};
+pub use views::{FilterRule, SortRule, TableView, TableViewInput, ViewConfig};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentAction {
+    pub id: String,
+    pub tool: String,
+    pub arguments: Value,
+    pub target_types: Vec<String>,
+    pub status: String,
+    pub created_at: i64,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error(transparent)]
@@ -77,6 +93,8 @@ pub struct Relation {
     pub position: Option<i64>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    #[serde(default)]
+    pub definition_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,6 +106,8 @@ pub struct RelationInput {
     pub position: Option<i64>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    #[serde(default)]
+    pub definition_id: Option<String>,
 }
 
 pub struct ExternalMail {
@@ -122,7 +142,7 @@ impl Db {
              PRAGMA synchronous = FULL;",
         )?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > 3 {
+        if version > 5 {
             return Err(DbError::Invalid(format!(
                 "database schema version {version} is newer than this app"
             )));
@@ -211,7 +231,59 @@ impl Db {
         if version < 3 {
             db.upgrade_builtin_fields()?;
         }
+        if version < 4 {
+            db.upgrade_schema_v4()?;
+        }
+        db.seed_relation_definitions()?;
+        if version < 5 {
+            db.upgrade_schema_v5()?;
+        }
         Ok(db)
+    }
+
+    fn upgrade_schema_v5(&mut self) -> Result<()> {
+        self.conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE agent_actions (
+               id TEXT PRIMARY KEY,
+               tool TEXT NOT NULL,
+               arguments_json TEXT NOT NULL CHECK(json_valid(arguments_json)),
+               target_types_json TEXT NOT NULL CHECK(json_valid(target_types_json)),
+               status TEXT NOT NULL CHECK(status IN ('pending', 'applying', 'applied', 'rejected')),
+               created_at INTEGER NOT NULL,
+               error TEXT
+             );
+             CREATE INDEX idx_agent_actions_status ON agent_actions(status, created_at DESC);
+             PRAGMA user_version = 5;
+             COMMIT;",
+        )?;
+        Ok(())
+    }
+
+    fn upgrade_schema_v4(&mut self) -> Result<()> {
+        self.conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE relation_definitions (
+               id TEXT PRIMARY KEY,
+               source_type TEXT NOT NULL REFERENCES record_types(key),
+               target_type TEXT NOT NULL REFERENCES record_types(key),
+               name TEXT NOT NULL,
+               inverse_name TEXT NOT NULL,
+               built_in INTEGER NOT NULL DEFAULT 0,
+               UNIQUE(source_type, target_type, name)
+             );
+             CREATE TABLE table_views (
+               id TEXT PRIMARY KEY,
+               type_key TEXT NOT NULL REFERENCES record_types(key),
+               name TEXT NOT NULL,
+               config_json TEXT NOT NULL CHECK(json_valid(config_json)),
+               UNIQUE(type_key, name)
+             );
+             ALTER TABLE relations ADD COLUMN definition_id TEXT REFERENCES relation_definitions(id);
+             PRAGMA user_version = 4;
+             COMMIT;",
+        )?;
+        Ok(())
     }
 
     fn seed_types(&mut self) -> Result<()> {
@@ -439,7 +511,7 @@ impl Db {
 
     pub fn list_relations(&self, record_id: &str) -> Result<Vec<Relation>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, source_id, target_id, kind, role, position, start_date, end_date
+            "SELECT id, source_id, target_id, kind, role, position, start_date, end_date, definition_id
              FROM relations WHERE source_id = ?1 OR target_id = ?1
              ORDER BY kind, position, id",
         )?;
@@ -453,6 +525,7 @@ impl Db {
                 position: row.get(5)?,
                 start_date: row.get(6)?,
                 end_date: row.get(7)?,
+                definition_id: row.get(8)?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -461,7 +534,7 @@ impl Db {
 
     pub fn all_relations(&self) -> Result<Vec<Relation>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, source_id, target_id, kind, role, position, start_date, end_date
+            "SELECT id, source_id, target_id, kind, role, position, start_date, end_date, definition_id
              FROM relations ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -474,10 +547,16 @@ impl Db {
                 position: row.get(5)?,
                 start_date: row.get(6)?,
                 end_date: row.get(7)?,
+                definition_id: row.get(8)?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    pub fn get_relation(&self, id: &str) -> Result<Option<Relation>> {
+        self.all_relations()
+            .map(|relations| relations.into_iter().find(|relation| relation.id == id))
     }
 
     pub fn all_files(&self) -> Result<Vec<(String, Vec<u8>)>> {
@@ -487,6 +566,30 @@ impl Db {
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    pub fn list_file_metadata(&self, offset: usize, limit: usize) -> Result<Vec<(String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT relative_path, length(content) FROM managed_files ORDER BY relative_path LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit.min(100) as i64, offset as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn read_file_chunk(
+        &self,
+        path: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Option<(Vec<u8>, i64)>> {
+        self.conn.query_row(
+            "SELECT substr(content, ?2, ?3), length(content) FROM managed_files WHERE relative_path = ?1",
+            params![path, offset.saturating_add(1) as i64, limit.min(5000) as i64],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(Into::into)
     }
 
     pub fn imported_message_ids(&self, provider: &str, account: &str) -> Result<Vec<String>> {
@@ -541,7 +644,9 @@ impl Db {
         &mut self,
         types: &[RecordType],
         records: &[Record],
+        relation_definitions: &[RelationDefinition],
         relations: &[Relation],
+        views: &[TableView],
         files: &[(String, Vec<u8>)],
     ) -> Result<()> {
         let mut merged_types = self.list_types()?;
@@ -609,6 +714,92 @@ impl Db {
                 false,
             )?;
         }
+        let mut merged_relation_definitions = self.list_relation_definitions(None)?;
+        for definition in relation_definitions {
+            if !merged_types
+                .iter()
+                .any(|kind| kind.key == definition.source_type)
+                || !merged_types
+                    .iter()
+                    .any(|kind| kind.key == definition.target_type)
+                || definition.name.trim().is_empty()
+                || definition.inverse_name.trim().is_empty()
+            {
+                return Err(DbError::Invalid(format!(
+                    "invalid relationship definition: {}",
+                    definition.id
+                )));
+            }
+            if let Some(existing) = self.get_relation_definition(&definition.id)?
+                && existing != *definition
+            {
+                return Err(DbError::Invalid(format!(
+                    "relationship definition {} conflicts",
+                    definition.id
+                )));
+            }
+            if !merged_relation_definitions
+                .iter()
+                .any(|item| item.id == definition.id)
+            {
+                merged_relation_definitions.push(definition.clone());
+            }
+        }
+        for view in views {
+            if view.is_default
+                || self
+                    .all_custom_views()?
+                    .iter()
+                    .any(|existing| existing.id == view.id)
+            {
+                return Err(DbError::Invalid(format!(
+                    "view {} already exists or is a default view",
+                    view.id
+                )));
+            }
+            let kind = merged_types
+                .iter()
+                .find(|kind| kind.key == view.type_key)
+                .ok_or_else(|| {
+                    DbError::Invalid(format!("view {} has an unknown entity type", view.id))
+                })?;
+            views::validate_view(kind, &merged_relation_definitions, &view.name, &view.config)?;
+        }
+        for relation in relations {
+            if let Some(definition_id) = &relation.definition_id {
+                let definition = relation_definitions
+                    .iter()
+                    .find(|item| &item.id == definition_id)
+                    .cloned()
+                    .or(self.get_relation_definition(definition_id)?)
+                    .ok_or_else(|| {
+                        DbError::Invalid(format!(
+                            "relationship {} has an unknown definition",
+                            relation.id
+                        ))
+                    })?;
+                let source = records
+                    .iter()
+                    .find(|item| item.id == relation.source_id)
+                    .cloned()
+                    .or(self.get_record(&relation.source_id)?)
+                    .ok_or(DbError::NotFound)?;
+                let target = records
+                    .iter()
+                    .find(|item| item.id == relation.target_id)
+                    .cloned()
+                    .or(self.get_record(&relation.target_id)?)
+                    .ok_or(DbError::NotFound)?;
+                if source.type_key != definition.source_type
+                    || target.type_key != definition.target_type
+                {
+                    return Err(DbError::Invalid(format!(
+                        "relationship {} has incompatible endpoints",
+                        relation.id
+                    )));
+                }
+            }
+        }
         for (path, _) in files {
             if !safe_managed_path(path) {
                 return Err(DbError::Invalid(format!("unsafe file path: {path}")));
@@ -641,6 +832,25 @@ impl Db {
                 ],
             )?;
         }
+        for definition in relation_definitions {
+            tx.execute(
+                "INSERT OR IGNORE INTO relation_definitions(id, source_type, target_type, name, inverse_name, built_in)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![definition.id, definition.source_type, definition.target_type,
+                    definition.name, definition.inverse_name, definition.built_in],
+            )?;
+        }
+        for view in views {
+            tx.execute(
+                "INSERT INTO table_views(id, type_key, name, config_json) VALUES(?1, ?2, ?3, ?4)",
+                params![
+                    view.id,
+                    view.type_key,
+                    view.name,
+                    serde_json::to_string(&view.config).unwrap()
+                ],
+            )?;
+        }
         for record in records {
             tx.execute(
                 "INSERT INTO records(id, type_key, title, body, values_json, tags_json,
@@ -663,8 +873,8 @@ impl Db {
         for relation in relations {
             tx.execute(
                 "INSERT INTO relations(id, source_id, target_id, kind, role, position,
-                                       start_date, end_date)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                       start_date, end_date, definition_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     relation.id,
                     relation.source_id,
@@ -674,6 +884,7 @@ impl Db {
                     relation.position,
                     relation.start_date,
                     relation.end_date,
+                    relation.definition_id,
                 ],
             )?;
         }
@@ -688,22 +899,48 @@ impl Db {
     }
 
     pub fn put_relation(&mut self, input: RelationInput) -> Result<Relation> {
-        if input.source_id == input.target_id || input.kind.trim().is_empty() {
+        if input.source_id == input.target_id {
             return Err(DbError::Invalid("invalid relation".into()));
         }
+        let kind = if let Some(definition_id) = &input.definition_id {
+            let definition = self
+                .get_relation_definition(definition_id)?
+                .ok_or_else(|| DbError::Invalid("unknown relationship definition".into()))?;
+            let source = self
+                .get_record(&input.source_id)?
+                .ok_or(DbError::NotFound)?;
+            let target = self
+                .get_record(&input.target_id)?
+                .ok_or(DbError::NotFound)?;
+            if source.deleted_at.is_some()
+                || target.deleted_at.is_some()
+                || source.type_key != definition.source_type
+                || target.type_key != definition.target_type
+            {
+                return Err(DbError::Invalid(
+                    "relationship endpoints do not match their entity types".into(),
+                ));
+            }
+            definition.name
+        } else if input.kind.trim().is_empty() {
+            return Err(DbError::Invalid("relationship kind is required".into()));
+        } else {
+            input.kind.clone()
+        };
         let id = Uuid::new_v4().to_string();
         self.conn.execute(
-            "INSERT INTO relations(id, source_id, target_id, kind, role, position, start_date, end_date)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO relations(id, source_id, target_id, kind, role, position, start_date, end_date, definition_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 input.source_id,
                 input.target_id,
-                input.kind,
+                kind,
                 input.role,
                 input.position,
                 input.start_date,
-                input.end_date
+                input.end_date,
+                input.definition_id,
             ],
         )?;
         self.list_relations(&input.source_id)?
@@ -746,6 +983,62 @@ impl Db {
         Ok(())
     }
 
+    pub fn queue_agent_action(
+        &mut self,
+        tool: &str,
+        arguments: &Value,
+        target_types: &[String],
+    ) -> Result<AgentAction> {
+        let id = Uuid::new_v4().to_string();
+        let now = unix_seconds();
+        self.conn.execute(
+            "INSERT INTO agent_actions(id, tool, arguments_json, target_types_json, status, created_at)
+             VALUES(?1, ?2, ?3, ?4, 'pending', ?5)",
+            params![id, tool, arguments.to_string(), serde_json::to_string(target_types).unwrap(), now],
+        )?;
+        self.get_agent_action(&id)?.ok_or(DbError::NotFound)
+    }
+
+    pub fn get_agent_action(&self, id: &str) -> Result<Option<AgentAction>> {
+        self.conn
+            .query_row(
+                "SELECT id, tool, arguments_json, target_types_json, status, created_at, error
+             FROM agent_actions WHERE id = ?1",
+                [id],
+                read_agent_action,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn list_agent_actions(&self) -> Result<Vec<AgentAction>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tool, arguments_json, target_types_json, status, created_at, error
+             FROM agent_actions WHERE status IN ('pending', 'applying')
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], read_agent_action)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn transition_agent_action(
+        &mut self,
+        id: &str,
+        from: &str,
+        to: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE agent_actions SET status = ?3, error = ?4 WHERE id = ?1 AND status = ?2",
+            params![id, from, to, error],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Conflict);
+        }
+        Ok(())
+    }
+
     pub fn backup_to(&self, path: &Path) -> Result<()> {
         let parent = path
             .parent()
@@ -769,6 +1062,20 @@ impl Db {
         })?;
         Ok(())
     }
+}
+
+fn read_agent_action(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentAction> {
+    let arguments: String = row.get(2)?;
+    let target_types: String = row.get(3)?;
+    Ok(AgentAction {
+        id: row.get(0)?,
+        tool: row.get(1)?,
+        arguments: serde_json::from_str(&arguments).map_err(json_sql_error)?,
+        target_types: serde_json::from_str(&target_types).map_err(json_sql_error)?,
+        status: row.get(4)?,
+        created_at: row.get(5)?,
+        error: row.get(6)?,
+    })
 }
 
 fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<Record> {
@@ -1117,6 +1424,7 @@ mod tests {
             position: None,
             start_date: None,
             end_date: None,
+            definition_id: None,
         })
         .unwrap();
         assert_eq!(db.list_relations(&lab.id).unwrap().len(), 1);
@@ -1144,6 +1452,13 @@ mod tests {
             1
         );
         assert_eq!(db.all_files().unwrap().len(), 1);
+        let (path, length) = db.list_file_metadata(0, 10).unwrap().remove(0);
+        assert!(path.ends_with(".eml"));
+        assert_eq!(
+            db.read_file_chunk(&path, 0, 8).unwrap().unwrap().0,
+            b"Subject:".to_vec()
+        );
+        assert!(length > 8);
         assert!(
             db.import_external_mail("me@example.com", &[mail("two"), mail("one")])
                 .is_err()
@@ -1216,6 +1531,14 @@ mod tests {
              VALUES('legacy', 'program', 'Old program', '', '{}', '[]', 1, 1)",
             [],
         ).unwrap();
+        db.conn
+            .execute_batch(
+                "DROP TABLE agent_actions;
+             ALTER TABLE relations DROP COLUMN definition_id;
+             DROP TABLE relation_definitions;
+             DROP TABLE table_views;",
+            )
+            .unwrap();
         db.conn.pragma_update(None, "user_version", 2).unwrap();
         drop(db);
 
@@ -1249,6 +1572,116 @@ mod tests {
                     expected_revision: None,
                 })
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn custom_entity_views_and_relationships_validate_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("data.sqlite")).unwrap();
+        db.put_type(RecordType {
+            key: "scholarship".into(),
+            label: "Scholarships".into(),
+            icon: "file".into(),
+            fields: vec![field("amount", "Amount", "number")],
+            built_in: false,
+        })
+        .unwrap();
+        assert_eq!(
+            db.list_views("scholarship").unwrap()[0].config.columns,
+            vec!["title", "amount", "tags", "updated_at"]
+        );
+        let saved = db
+            .put_view(TableViewInput {
+                id: None,
+                type_key: "scholarship".into(),
+                name: "Large awards".into(),
+                config: ViewConfig {
+                    columns: vec!["title".into(), "amount".into()],
+                    filters: vec![FilterRule {
+                        field: "amount".into(),
+                        operator: "greater_than".into(),
+                        value: "1000".into(),
+                    }],
+                    sorts: vec![SortRule {
+                        field: "amount".into(),
+                        direction: "desc".into(),
+                    }],
+                    group_by: None,
+                },
+            })
+            .unwrap();
+        assert_eq!(db.list_views("scholarship").unwrap().len(), 2);
+        assert!(
+            db.put_view(TableViewInput {
+                id: Some(saved.id),
+                type_key: "scholarship".into(),
+                name: "Broken".into(),
+                config: ViewConfig {
+                    columns: vec!["missing".into()],
+                    filters: vec![],
+                    sorts: vec![],
+                    group_by: None
+                }
+            })
+            .is_err()
+        );
+        let definition = db
+            .put_relation_definition(RelationDefinitionInput {
+                id: None,
+                source_type: "scholarship".into(),
+                target_type: "university".into(),
+                name: "Institution".into(),
+                inverse_name: "Scholarships".into(),
+            })
+            .unwrap();
+        let scholarship = db
+            .put_record(RecordInput {
+                id: None,
+                type_key: "scholarship".into(),
+                title: "Award".into(),
+                body: String::new(),
+                values: serde_json::json!({"amount": 2000}),
+                tags: vec![],
+                expected_revision: None,
+            })
+            .unwrap();
+        let university = db
+            .put_record(RecordInput {
+                id: None,
+                type_key: "university".into(),
+                title: "University".into(),
+                body: String::new(),
+                values: empty_object(),
+                tags: vec![],
+                expected_revision: None,
+            })
+            .unwrap();
+        let linked = db
+            .put_relation(RelationInput {
+                source_id: scholarship.id.clone(),
+                target_id: university.id.clone(),
+                kind: String::new(),
+                role: None,
+                position: None,
+                start_date: None,
+                end_date: None,
+                definition_id: Some(definition.id.clone()),
+            })
+            .unwrap();
+        assert_eq!(linked.definition_id, Some(definition.id.clone()));
+        assert!(
+            db.put_relation(RelationInput {
+                source_id: university.id,
+                target_id: scholarship.id,
+                kind: String::new(),
+                role: None,
+                position: None,
+                start_date: None,
+                end_date: None,
+                definition_id: Some(definition.id)
+            })
+            .is_err()
         );
     }
 }
