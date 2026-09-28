@@ -1,148 +1,44 @@
 # Eduport
 
-**English** · [Türkçe](README.tr.md)
+Eduport is a single-device desktop workspace for master's and PhD research and applications. It is a fresh Tauri 2 + Svelte 5 app with SQLite as the source of truth. Markdown is an import, export, and recovery format; files are never used as the live database.
 
-<img src="crates/eduport-tauri/icons/icon.svg" alt="Eduport" width="80" align="right" />
+## What works
 
-A single-user desktop app for tracking university applications, programs, people, labs, and the documents and emails that connect them. Storage is plain Markdown + YAML on disk — sync-friendly via Dropbox / iCloud / Syncthing, and editable directly in Obsidian alongside the app.
+- Universities, labs, people, programs, applications, publications, projects, mail, documents, and notes. A person has one record and any number of role-bearing links to other records. Labs can link to several institutions. Add your own fields to a record type and use tags and links freely.
+- Local SQLite with transactional writes, foreign keys, full-text index, optimistic revisions, recoverable trash, and a consistent backup command.
+- Preview and import an old Eduport Markdown vault or an Eduport export. Import merges into the current database only if IDs and files do not conflict. The source folder is left untouched, and legacy originals and attachments are retained. Export writes readable Markdown, a schema/relation manifest, and managed files.
+- Assistant with local Ollama or cloud OpenRouter. Choose a provider and model in Settings. Choose the records for each request. Cloud requests require an explicit checkbox for each request. In controlled mode every suggested write waits for review; in delegated mode only the record types you allow may be changed directly. The assistant cannot delete records or send mail.
+- Gmail connection using a Google Desktop OAuth client, PKCE, and the read-only Gmail scope. Search, select up to 20 messages, preview, and import them. The original `.eml` is retained for export. Re-importing the same message for one account is blocked by a unique key. Gmail is the first mail provider adapter; the app has no mail sending or background inbox sync.
 
-**Just want to use it?** Download an installer for Windows, macOS, or Linux from the [latest release](https://github.com/rusenbb/eduport/releases/latest) — the release page lists exactly which file to pick for your OS and how to install it. No setup beyond that.
+## Run locally
 
-**Status:** v1 in active development. Local builds work end-to-end; installers are unsigned (warnings on first launch are dismissable, see the release page for steps).
+Requires a Tauri 2 desktop toolchain (Rust, Node.js, and the platform prerequisites).
 
-## Highlights
-
-- **8 entity types** — University, Lab, Person, Program, Application, Document, Email, Note — all stored as `<slug>-<id>.md` with YAML frontmatter
-- **User-defined custom properties (Notion-style)** — per entity type, eight property types (text / number / date / checkbox / single-select / multi-select / url / relation), defined in a sync-friendly `.eduport/schema.yaml` so renames and new fields propagate across machines
-- **Three view modes per entity type** — List, Table (editable cells), and Kanban (Application). Click any cell in the Table to edit in place; drag cards on the Kanban to update the underlying field
-- **Saved views** — name a filter / sort / group / column-set / view-mode bundle as a tab; switch between Notion-shaped views with one click. Stored in `.eduport/views.yaml` (synced)
-- **Filter, sort, group-by, collapsible sections** — every list view supports per-property filters and sort, plus collapsible group-by-select sections. Sidebar shows per-property chip aggregations with counts
-- **Wikilinks as the relationship graph** — `[[eth-zurich-K9p3]]` references resolve by id-suffix, so renames in Obsidian don't break links
-- **⌘K command palette** — quick lookup + full-text search via SQLite FTS5 (covers custom text/url property values too)
-- **First-run onboarding** — picks a data folder, creates `attachments/` and `notes/` subfolders, optional sample seeds
-- **Soft delete** — items move to `<data folder>/.eduport-trash/`, restorable from the in-app Trash view
-- **Source of truth = your files** — SQLite lives outside the data folder (in the OS cache dir) and rebuilds itself if missing or stale
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│ Tauri shell (Rust) — eduport-tauri       │
-│  • Hosts the WebView                     │
-│  • #[tauri::command] handlers wrap        │
-│    eduport-core for the SvelteKit UI     │
-│  • Forwards watcher events as Tauri      │
-│    events (eduport:vault-event /         │
-│    eduport:parse-error)                  │
-└─────────────┬───────────────────────────┘
-              │ Tauri command channel (in-process)
-              ▼
-┌─────────────────────────────────────────┐
-│ eduport-core (Rust library)              │
-│  • Typed entities + custom-property       │
-│    schema validator                      │
-│  • Atomic file writes via vaultdb-core   │
-│  • SQLite + FTS5 search/filter index      │
-│  • notify-based file watcher             │
-│  • EML parser                            │
-└─────────────┬───────────────────────────┘
-              │ depends on
-              ▼
-┌─────────────────────────────────────────┐
-│ vaultdb-core (Rust library)              │
-│  • Treats a markdown vault as a queryable │
-│    database                              │
-│  • Frontmatter parser, link graph,        │
-│    transactional rename, vault lock       │
-└─────────────────────────────────────────┘
+```sh
+npm ci
+npm run tauri dev
 ```
 
-> The Python (FastAPI) sidecar that this stack used to ship with was
-> retired in rewrite phase 11; everything now lives in process via
-> `eduport-core` and `eduport-tauri`. The original design spec is at
-> [`docs/superpowers/specs/2026-05-09-vaultdb-rewrite-design.md`](docs/superpowers/specs/2026-05-09-vaultdb-rewrite-design.md).
+`npm run check`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml` verify the frontend and Rust core. `npm run tauri build` produces a desktop bundle.
 
-## Tech stack
+The desktop database lives in the platform application-data directory under `io.github.rusenbb.eduport/eduport.sqlite`. Use **Settings → Back up database** before experimenting with imports. Backups are separate SQLite files. **Export Markdown** creates a new `eduport-export-<timestamp>` folder inside the folder you choose.
 
-| Layer | Choice |
-|---|---|
-| Native shell | Tauri 2 (Rust) |
-| Domain layer | `eduport-core` (Rust) over `vaultdb-core` |
-| Frontend | SvelteKit + Svelte 5, Tailwind CSS v4, CodeMirror 6 |
-| Markdown render (UI) | `marked` + custom wikilink/checkbox extraction |
-| File watcher | `notify` + `notify-debouncer-full` (Rust) |
-| Storage / search | `rusqlite` with bundled SQLite + FTS5 |
-| Desktop bundling | Tauri (no external sidecar binary) |
-| Tooling | `cargo` (Rust), `npm` (frontend) |
+## Providers
 
-## Project structure
+**Ollama:** Install and run Ollama locally, download a model, then select `Ollama` and enter the model name. Eduport calls the local `/api/chat` endpoint. It does not start Ollama or download a model for you.
 
-```
-Cargo.toml                     workspace manifest
-crates/
-  eduport-core/                Rust library — typed schema, FTS5, watcher, EML, settings
-  eduport-tauri/               Rust shell (Tauri 2) — Tauri commands + native bridges
-docs/                          design spec, packaging notes, implementation plans
-frontend/                      SvelteKit app — UI + Tauri-invoke API client
-scripts/                       build helpers (Tauri prereqs)
-```
+**OpenRouter:** Select `OpenRouter`, enter a model ID, and save an API key in Settings. The key is stored in the operating system's credential store, outside the SQLite database and Markdown exports. A request to OpenRouter sends your question and only the records you checked. Review the provider's model pricing and privacy terms before using it.
 
-## Prerequisites
+**Gmail:** In Google Cloud, create an OAuth client of type **Desktop app**, configure the Gmail read-only scope for the consent screen, and copy its client ID into Eduport Settings. Google may restrict an unverified app to test users. Sign-in opens your browser and returns to a temporary loopback address on this device. The refresh token stays in the operating system's credential store. Eduport requests read-only access and cannot send or modify messages.
 
-The project targets macOS, Windows, and Linux. All three need:
+Provider code lives in `src-tauri/src/ai.rs` and `src-tauri/src/mail.rs`; the frontend calls native commands through `src/lib/api.ts`. Additional providers can be added behind these boundaries without changing the record store.
 
-- **Rust** 1.77.2+ (`rustup install stable`)
-- **Node.js** 20+ and npm
+## Import and recovery
 
-Plus the OS-specific Tauri prerequisites (full reference: <https://v2.tauri.app/start/prerequisites/>):
+The old Eduport Markdown vault can be selected from **Settings → Import Markdown**. The preview lists records, files, warnings, and blockers before any write. An import is one SQLite transaction. Existing records are never overwritten, and a changed source folder invalidates its preview. Legacy Markdown values that cannot be mapped cleanly stay in the preserved original file, and the preview warns about them.
 
-- **macOS:** Xcode Command Line Tools — `xcode-select --install`
-- **Windows:** [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (with the "Desktop development with C++" workload). WebView2 is preinstalled on Windows 10/11.
-- **Linux (Debian/Ubuntu):** `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `build-essential`
+An Eduport Markdown export is round-trippable through the same preview/import flow. A SQLite backup is the fastest complete recovery copy; close Eduport before replacing its database file with a backup. The app currently targets one device. Copying a live SQLite file into Dropbox or iCloud as an active sync mechanism is unsupported.
 
-## Getting started
+## Current boundaries
 
-### Run the frontend in a browser (UI only, no Tauri bridges)
-
-```bash
-cd frontend
-npm install
-npm run dev          # http://localhost:5173
-```
-
-In browser-only mode, dialogs and API commands that require Tauri fall back to dev placeholders or throw — the dev server is for component work, not API exercise.
-
-### Build + install the full desktop app
-
-The packaging script builds the SvelteKit frontend then runs `tauri build`:
-
-```bash
-python3 scripts/build_desktop.py
-```
-
-On Linux this produces `.deb` and `.rpm` under `target/release/bundle/`. Install with `sudo apt install ./target/release/bundle/deb/eduport_*.deb` (or your distro's equivalent). See [docs/packaging.md](docs/packaging.md) for advanced bundle targets and CI notes.
-
-## Tests + checks
-
-```bash
-# eduport-core unit tests
-cargo test -p eduport-core
-
-# whole-workspace clippy
-cargo clippy --workspace --all-targets -- -D warnings
-
-# Frontend — type-check + Svelte diagnostics
-cd frontend
-npm run check
-npx vitest --run
-```
-
-## Documentation
-
-- **[Design spec](docs/superpowers/specs/2026-05-06-eduport-design.md)** — entity model, storage layout, UI shape, sync semantics, parse-error handling — the canonical "why" and "what"
-- **[Packaging](docs/packaging.md)** — local builds, GitHub Actions workflow, signing notes
-- **Implementation plans** — granular per-layer breakdowns under [`docs/superpowers/plans/`](docs/superpowers/plans/)
-
-## License
-
-MIT (per the workspace `Cargo.toml`). A standalone `LICENSE` file is on the to-do list.
+Gmail OAuth and model responses need your own credentials or running local provider; automated tests use local fixtures and do not sign in or spend API credits. This first version supports one connected Gmail account at a time, selected-message import, and local backup/export. Mail attachments are preserved in the original `.eml` and are not yet surfaced as separate document records. There is no scheduled cloud sync, mail sending, or runtime installation of third-party plugins.

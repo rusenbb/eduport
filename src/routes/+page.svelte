@@ -1,0 +1,840 @@
+<script lang="ts">
+  import {
+    ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, CircleHelp,
+    Clock3, Download, FileText, FolderKanban, Home, Link2, Mail, Plus, Search,
+    Settings2, Sparkles, Trash2, X
+  } from '@lucide/svelte';
+  import { onMount } from 'svelte';
+  import { api, inDesktop } from '$lib/api';
+  import type { AiConfig, AiResult, Entry, EntryInput, FieldDef, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput } from '$lib/types';
+
+  let types = $state<RecordType[]>([]);
+  let entries = $state<Entry[]>([]);
+  let relations = $state<Relation[]>([]);
+  let active = $state('home');
+  let selectedId = $state<string | null>(null);
+  let searchQuery = $state('');
+  let listQuery = $state('');
+  let loading = $state(true);
+  let error = $state('');
+  let toast = $state('');
+  let editorOpen = $state(false);
+  let tagText = $state('');
+  let editingType = $state<RecordType | null>(null);
+  let importPreview = $state<ImportPreview | null>(null);
+  let relationOpen = $state(false);
+  let aiConfig = $state<AiConfig>({ provider: 'ollama', model: '', trust_mode: 'controlled', delegated_types: [] });
+  let openrouterKey = $state('');
+  let keyConfigured = $state(false);
+  let assistantPrompt = $state('');
+  let assistantContext = $state<string[]>([]);
+  let allowCloud = $state(false);
+  let assistantBusy = $state(false);
+  let assistantResult = $state<AiResult | null>(null);
+  let gmailAccount = $state<GmailAccount | null>(null);
+  let gmailClientId = $state('');
+  let gmailQuery = $state('');
+  let gmailMessages = $state<GmailMessage[]>([]);
+  let gmailSelected = $state<string[]>([]);
+  let gmailPreview = $state<MailPreview[]>([]);
+  let gmailBusy = $state(false);
+  let newField = $state({ key: '', label: '', kind: 'text' as FieldDef['kind'] });
+  let newFieldOptions = $state('');
+  let relationDraft = $state<RelationInput>({
+    source_id: '', target_id: '', kind: 'related_to', role: null,
+    position: null, start_date: null, end_date: null
+  });
+  let draft = $state<EntryInput>({
+    type_key: 'note', title: '', body: '', values: {}, tags: []
+  });
+
+  const selected = $derived(entries.find((entry) => entry.id === selectedId) ?? null);
+  const activeType = $derived(types.find((type) => type.key === active) ?? null);
+  const editType = $derived(types.find((type) => type.key === draft.type_key) ?? null);
+  const liveEntries = $derived(entries.filter((entry) => entry.deleted_at === null));
+  const visibleEntries = $derived.by(() => {
+    let pool = active === 'trash'
+      ? entries.filter((entry) => entry.deleted_at !== null)
+      : liveEntries;
+    if (active !== 'all' && active !== 'trash' && active !== 'search') {
+      pool = pool.filter((entry) => entry.type_key === active);
+    }
+    const term = (active === 'search' ? searchQuery : listQuery).trim().toLowerCase();
+    if (term) {
+      pool = pool.filter((entry) =>
+        (entry.title + ' ' + entry.body + ' ' + JSON.stringify(entry.values))
+          .toLowerCase().includes(term)
+      );
+    }
+    return [...pool].sort((a, b) => b.updated_at - a.updated_at);
+  });
+  const countByType = $derived.by(() => {
+    const counts: Record<string, number> = {};
+    for (const entry of liveEntries) counts[entry.type_key] = (counts[entry.type_key] ?? 0) + 1;
+    return counts;
+  });
+  const upcoming = $derived(
+    liveEntries
+      .filter((entry) => entry.type_key === 'application' && typeof entry.values.deadline === 'string' && String(entry.values.deadline) >= new Date().toISOString().slice(0, 10))
+      .sort((a, b) => String(a.values.deadline).localeCompare(String(b.values.deadline)))
+      .slice(0, 4)
+  );
+  const importConflicts = $derived(
+    importPreview?.rows.filter((row) => entries.some((entry) => entry.id === row.id)) ?? []
+  );
+
+  onMount(() => { void load(); });
+
+  async function load() {
+    loading = true;
+    error = '';
+    try {
+      [types, entries] = await Promise.all([api.listTypes(), api.listRecords(undefined, true)]);
+      aiConfig = await api.getAiConfig();
+      keyConfigured = await api.hasOpenRouterKey();
+      gmailAccount = await api.getGmailAccount();
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function message(cause: unknown): string {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+
+  function notify(text: string) {
+    toast = text;
+    window.setTimeout(() => { if (toast === text) toast = ''; }, 3600);
+  }
+
+  function navigate(next: string) {
+    active = next;
+    selectedId = null;
+    listQuery = '';
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  async function choose(entry: Entry) {
+    selectedId = entry.id;
+    try {
+      relations = await api.listRelations(entry.id);
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  function startCreate(typeKey?: string) {
+    draft = {
+      type_key: typeKey ?? (activeType?.key || 'note'),
+      title: '',
+      body: '',
+      values: {},
+      tags: []
+    };
+    error = '';
+    tagText = '';
+    editorOpen = true;
+  }
+
+  function startEdit(entry: Entry) {
+    draft = {
+      id: entry.id,
+      type_key: entry.type_key,
+      title: entry.title,
+      body: entry.body,
+      values: structuredClone(entry.values),
+      tags: [...entry.tags],
+      expected_revision: entry.revision
+    };
+    error = '';
+    tagText = entry.tags.join(', ');
+    editorOpen = true;
+  }
+
+  async function saveEntry() {
+    error = '';
+    try {
+      const values: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(draft.values)) {
+        if (value !== '' && value !== null && value !== undefined) values[key] = value;
+      }
+      const tags = [...new Set(tagText.split(',').map((tag) => tag.trim()).filter(Boolean))];
+      const saved = await api.putRecord({ ...draft, title: draft.title.trim(), values, tags });
+      entries = draft.id
+        ? entries.map((entry) => entry.id === saved.id ? saved : entry)
+        : [saved, ...entries];
+      editorOpen = false;
+      if (active === 'home' || active === 'trash') active = saved.type_key;
+      await choose(saved);
+      notify(draft.id ? 'Record updated' : 'Record created');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function confirmAction(text: string): Promise<boolean> {
+    if (!inDesktop) return window.confirm(text);
+    const { ask } = await import('@tauri-apps/plugin-dialog');
+    return ask(text, { title: 'Eduport', kind: 'warning' });
+  }
+
+  async function toggleDeleted(entry: Entry) {
+    const deleting = entry.deleted_at === null;
+    if (deleting && !await confirmAction('Move this record to Trash?')) return;
+    try {
+      const changed = await api.setDeleted(entry.id, deleting);
+      entries = entries.map((item) => item.id === changed.id ? changed : item);
+      selectedId = null;
+      notify(deleting ? 'Moved to Trash' : 'Record restored');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  function startRelation(entry: Entry) {
+    relationDraft = {
+      source_id: entry.id,
+      target_id: '',
+      kind: 'related_to',
+      role: null,
+      position: null,
+      start_date: null,
+      end_date: null
+    };
+    relationOpen = true;
+  }
+
+  async function saveRelation() {
+    if (!relationDraft.target_id) {
+      error = 'Choose a target record.';
+      return;
+    }
+    try {
+      await api.putRelation(relationDraft);
+      relations = await api.listRelations(relationDraft.source_id);
+      relationOpen = false;
+      notify('Relation added');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function removeRelation(id: string) {
+    if (!await confirmAction('Remove this connection? It will not appear in Trash.')) return;
+    try {
+      await api.deleteRelation(id);
+      relations = relations.filter((relation) => relation.id !== id);
+      notify('Relation removed');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  function startFieldEditor(type: RecordType) {
+    editingType = structuredClone(type);
+    newField = { key: '', label: '', kind: 'text' };
+    newFieldOptions = '';
+    error = '';
+  }
+
+  async function addField() {
+    if (!editingType || !newField.key.trim() || !newField.label.trim()) {
+      error = 'Key and label are required.';
+      return;
+    }
+    const options = newFieldOptions.split(',').map((value) => value.trim()).filter(Boolean);
+    if (newField.kind === 'select' && options.length === 0) {
+      error = 'Add at least one choice for this field.';
+      return;
+    }
+    const updated: RecordType = {
+      ...editingType,
+      fields: [...editingType.fields, {
+        key: newField.key.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+        label: newField.label.trim(),
+        kind: newField.kind,
+        options: newField.kind === 'select' ? [...new Set(options)] : [],
+        required: false
+      }]
+    };
+    try {
+      const saved = await api.putType(updated);
+      types = types.map((type) => type.key === saved.key ? saved : type);
+      editingType = saved;
+      newField = { key: '', label: '', kind: 'text' };
+      newFieldOptions = '';
+      notify('Field added');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function previewImport() {
+    error = '';
+    try {
+      importPreview = await api.previewMarkdownImport();
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function applyImport() {
+    if (!importPreview) return;
+    error = '';
+    try {
+      const imported = await api.applyMarkdownImport(importPreview.fingerprint);
+      importPreview = null;
+      await load();
+      notify(imported + ' records imported');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function exportMarkdown() {
+    error = '';
+    try {
+      const path = await api.exportMarkdown();
+      if (path) notify('Markdown export saved to ' + path);
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function backupDatabase() {
+    error = '';
+    try {
+      const path = await api.backupDatabase();
+      if (path) notify('Database backup saved to ' + path);
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function saveAiConfig() {
+    error = '';
+    try {
+      await api.putAiConfig(aiConfig);
+      notify('Assistant settings saved');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function saveOpenRouterKey() {
+    error = '';
+    try {
+      await api.setOpenRouterKey(openrouterKey);
+      openrouterKey = '';
+      keyConfigured = true;
+      notify('OpenRouter key saved to the OS credential store');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  function toggleContext(id: string) {
+    assistantContext = assistantContext.includes(id)
+      ? assistantContext.filter((entry) => entry !== id)
+      : assistantContext.length < 10 ? [...assistantContext, id] : assistantContext;
+  }
+
+  async function askAssistant() {
+    error = '';
+    assistantBusy = true;
+    try {
+      assistantResult = await api.askAssistant({
+        question: assistantPrompt,
+        context_ids: assistantContext,
+        allow_cloud: allowCloud
+      });
+      if (assistantResult.suggestions.some((item) => item.status === 'applied')) {
+        entries = await api.listRecords(undefined, true);
+      }
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      assistantBusy = false;
+    }
+  }
+
+  async function approveSuggestion(index: number) {
+    const result = assistantResult?.suggestions[index];
+    if (!result || result.status !== 'pending') return;
+    error = '';
+    try {
+      await api.approveAiSuggestion(result.suggestion);
+      result.status = 'applied';
+      entries = await api.listRecords(undefined, true);
+      notify('AI suggestion applied');
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  async function connectGmail() {
+    error = '';
+    gmailBusy = true;
+    try {
+      gmailAccount = await api.connectGmail(gmailClientId);
+      gmailClientId = '';
+      gmailMessages = [];
+      gmailPreview = [];
+      notify('Gmail connected: ' + gmailAccount.email);
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      gmailBusy = false;
+    }
+  }
+
+  async function searchGmail() {
+    error = '';
+    gmailBusy = true;
+    gmailPreview = [];
+    gmailSelected = [];
+    try {
+      gmailMessages = await api.searchGmail(gmailQuery);
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      gmailBusy = false;
+    }
+  }
+
+  function toggleGmail(id: string) {
+    gmailPreview = [];
+    gmailSelected = gmailSelected.includes(id)
+      ? gmailSelected.filter((value) => value !== id)
+      : gmailSelected.length < 20 ? [...gmailSelected, id] : gmailSelected;
+  }
+
+  async function previewSelectedMail() {
+    error = '';
+    gmailBusy = true;
+    try {
+      gmailPreview = await api.previewGmailImport(gmailSelected);
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      gmailBusy = false;
+    }
+  }
+
+  async function importSelectedMail() {
+    error = '';
+    gmailBusy = true;
+    try {
+      const count = await api.importGmailSelected(gmailSelected);
+      notify(`${count} Gmail messages imported`);
+      const importedIds = new Set(gmailSelected);
+      gmailPreview = [];
+      gmailSelected = [];
+      gmailMessages = gmailMessages.map((item) => ({ ...item, imported: item.imported || importedIds.has(item.id) }));
+      entries = await api.listRecords(undefined, true);
+    } catch (cause) {
+      error = message(cause);
+    } finally {
+      gmailBusy = false;
+    }
+  }
+
+  function typeLabel(key: string): string {
+    return ({ university: 'University', lab: 'Lab', person: 'Person', program: 'Program',
+      application: 'Application', publication: 'Publication', project: 'Project',
+      mail: 'Mail', document: 'Document', note: 'Note' } as Record<string, string>)[key]
+      ?? types.find((type) => type.key === key)?.label ?? key;
+  }
+
+  function compactDate(seconds: number): string {
+    if (seconds <= 0) return 'date unknown';
+    return new Date(seconds * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  function recordIcon(key: string): string {
+    return ({
+      university: 'U', lab: 'L', person: 'P', program: 'Pr',
+      application: 'A', publication: 'Pb', project: 'Pj',
+      mail: 'M', document: 'D', note: 'N'
+    } as Record<string, string>)[key] ?? key.slice(0, 2).toUpperCase();
+  }
+
+  function onGlobalKey(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      document.getElementById('global-search')?.focus();
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      startCreate();
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onGlobalKey} />
+
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">e</span>
+      <div>
+        <div class="brand-name">eduport</div>
+        <div class="brand-caption">Research workspace</div>
+      </div>
+    </div>
+
+    <nav aria-label="Main navigation">
+      <button class:active={active === 'home'} class="nav-button" onclick={() => navigate('home')}>
+        <Home size={16} strokeWidth={1.8} /> Overview
+      </button>
+      <button class:active={active === 'all'} class="nav-button" onclick={() => navigate('all')}>
+        <BookOpen size={16} strokeWidth={1.8} /> All records <span class="count">{liveEntries.length}</span>
+      </button>
+      <button class:active={active === 'assistant'} class="nav-button" onclick={() => navigate('assistant')}>
+        <Sparkles size={16} strokeWidth={1.8} /> Assistant
+      </button>
+      <div class="nav-label">Workspace</div>
+      {#each types as type}
+        <button class:active={active === type.key} class="nav-button" onclick={() => navigate(type.key)}>
+          <span class="sidebar-type-icon">{recordIcon(type.key)}</span>
+          {type.label}
+          {#if countByType[type.key]}<span class="count">{countByType[type.key]}</span>{/if}
+        </button>
+      {/each}
+      <div class="nav-divider"></div>
+      <button class:active={active === 'trash'} class="nav-button" onclick={() => navigate('trash')}>
+        <Trash2 size={16} strokeWidth={1.8} /> Trash
+      </button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class:active={active === 'settings'} class="nav-button" onclick={() => navigate('settings')}>
+        <Settings2 size={16} strokeWidth={1.8} /> Settings & fields
+      </button>
+      <p class="sidebar-note">Your records live in a local SQLite database on this device.</p>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumb">Workspace <ChevronRight size={13} style="vertical-align:middle" /> <strong>{active === 'home' ? 'Overview' : activeType?.label ?? (active === 'all' ? 'All records' : active === 'search' ? 'Search' : active === 'trash' ? 'Trash' : active === 'assistant' ? 'Assistant' : 'Settings')}</strong></div>
+      <label class="topbar-search">
+        <Search size={15} strokeWidth={1.7} />
+        <input id="global-search" aria-label="Search records" placeholder="Search your workspace..." bind:value={searchQuery} oninput={() => { if (searchQuery) navigate('search'); else if (active === 'search') navigate('home'); }} />
+      </label>
+      {#if !inDesktop}<span class="preview-pill">BROWSER PREVIEW</span>{/if}
+      <button class="topbar-icon" title="Help" aria-label="Help" onclick={() => notify('Tip: use ⌘K to search and ⌘N to create a record.')}><CircleHelp size={18} /></button>
+      <button class="primary-button" onclick={() => startCreate()}><Plus size={15} /> New record</button>
+    </header>
+
+    <main class="content">
+      {#if loading}
+        <div class="empty-state"><Clock3 size={25} /> <h3>Opening your workspace…</h3></div>
+      {:else if error && !editorOpen && !relationOpen && !editingType}
+        <div class="error-box" role="alert">{error}</div>
+      {/if}
+
+      {#if !loading && active === 'home'}
+        <section class="overview-hero">
+          <div class="section-kicker"><Sparkles size={14} /> Your academic workspace</div>
+          <h1>Make room for what comes next.</h1>
+          <p>Keep programs, labs, people, research and applications connected in one calm place — from first curiosity to final decision.</p>
+          <button class="primary-button" onclick={() => startCreate('application')}>Start an application <ArrowRight size={15} /></button>
+        </section>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="top"><span>Applications</span><FolderKanban size={16} /></div><strong>{countByType.application ?? 0}</strong></div>
+          <div class="stat-card"><div class="top"><span>Programs</span><BookOpen size={16} /></div><strong>{countByType.program ?? 0}</strong></div>
+          <div class="stat-card"><div class="top"><span>People & labs</span><Link2 size={16} /></div><strong>{(countByType.person ?? 0) + (countByType.lab ?? 0)}</strong></div>
+          <div class="stat-card"><div class="top"><span>Research</span><FileText size={16} /></div><strong>{(countByType.publication ?? 0) + (countByType.project ?? 0)}</strong></div>
+        </div>
+        <div class="section-heading"><h2>Recently updated</h2><button class="topbar-icon" title="All records" aria-label="All records" onclick={() => navigate('all')}><ArrowRight size={17} /></button></div>
+        {#if liveEntries.length}
+          <div class="record-grid">
+            {#each [...liveEntries].sort((a, b) => b.updated_at - a.updated_at).slice(0, 3) as entry}
+              <button class="record-card" onclick={() => { active = entry.type_key; void choose(entry); }}>
+                <span class="record-type"><span class="type-dot"></span>{typeLabel(entry.type_key)}</span>
+                <h3>{entry.title}</h3>
+                <p>{entry.body.slice(0, 95) || 'No description yet'}{entry.body.length > 95 ? '…' : ''}</p>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="empty-state list-panel"><BookOpen size={25} /><h3>Start with one record</h3><p>Add a program, person or lab to begin connecting your research.</p><button class="secondary-button" onclick={() => startCreate('program')}>Add a program</button></div>
+        {/if}
+        {#if upcoming.length}
+          <div class="section-heading"><h2>Upcoming deadlines</h2><span>From your applications</span></div>
+          <div class="list-panel">
+            {#each upcoming as entry}
+              <button class="record-row" onclick={() => { active = 'application'; void choose(entry); }}>
+                <span><span class="title">{entry.title}</span><span class="sub">{String(entry.values.intake ?? 'Application')}</span></span>
+                <span class="meta">{String(entry.values.deadline)}</span>
+                <span class="kind">{String(entry.values.status ?? 'planning')}</span>
+                <ChevronRight size={15} />
+              </button>
+            {/each}
+          </div>
+        {/if}
+      {:else if !loading && active === 'assistant'}
+        <div class="page-head"><div><div class="section-kicker"><Sparkles size={14} /> Native AI</div><h1>Research assistant</h1><p>Choose exactly which records the assistant may read. Suggestions follow your trust mode.</p></div><button class="secondary-button" onclick={() => navigate('settings')}><Settings2 size={14} /> Provider settings</button></div>
+        <div class="assistant-layout">
+          <section class="assistant-card">
+            <div class="assistant-provider"><span class="record-type"><span class="type-dot"></span>{aiConfig.provider === 'ollama' ? 'Ollama · local' : 'OpenRouter · cloud'}</span><span class="muted">{aiConfig.model || 'Choose a model in Settings'} · {aiConfig.trust_mode} mode</span></div>
+            <label class="form-field wide"><span>What would you like to work on?</span><textarea bind:value={assistantPrompt} placeholder="Ask about a program, summarize selected records, or request a draft note."></textarea></label>
+            {#if aiConfig.provider === 'openrouter'}
+              <label class="cloud-consent"><input type="checkbox" bind:checked={allowCloud} /> Send my question and the selected records below to OpenRouter for this request.</label>
+            {/if}
+            <button class="primary-button" disabled={assistantBusy || !assistantPrompt.trim() || !aiConfig.model || (aiConfig.provider === 'openrouter' && !allowCloud)} onclick={askAssistant}><Sparkles size={15} /> {assistantBusy ? 'Thinking…' : 'Ask assistant'}</button>
+            {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+            {#if assistantResult}
+              <div class="assistant-answer"><div class="section-kicker">Response</div><p>{assistantResult.answer}</p><span class="muted" style="font-size:10px">{assistantResult.provider} · {assistantResult.model} · {assistantResult.shared_record_ids.length} records shared</span></div>
+              {#each assistantResult.suggestions as item, index}
+                <div class="suggestion-card"><div class="section-kicker">Suggested {item.suggestion.operation}</div><h3>{item.suggestion.title}</h3><p>{item.suggestion.body || 'No body text'}</p>{#if Object.keys(item.suggestion.values).length}<pre>{JSON.stringify(item.suggestion.values, null, 2)}</pre>{/if}{#if item.suggestion.tags.length}<p>Tags: {item.suggestion.tags.join(', ')}</p>{/if}<span class="muted">{item.suggestion.type_key} · {item.status}</span>{#if item.note}<div class="error-box">{item.note}</div>{/if}{#if item.status === 'pending'}<button class="secondary-button" onclick={() => approveSuggestion(index)}>Review and apply</button>{/if}</div>
+              {/each}
+            {/if}
+          </section>
+          <aside class="assistant-context">
+            <div class="section-kicker">Shared context</div><h3>Select records</h3><p>Only checked records are included in this request. Up to 10.</p>
+            {#each liveEntries as entry}
+              <label class="context-row"><input type="checkbox" checked={assistantContext.includes(entry.id)} onchange={() => toggleContext(entry.id)} /><span>{entry.title}<small>{typeLabel(entry.type_key)}</small></span></label>
+            {/each}
+            {#if !liveEntries.length}<p class="muted">Create a record to give the assistant local context.</p>{/if}
+          </aside>
+        </div>
+      {:else if !loading && active === 'settings'}
+        <div class="page-head"><div><div class="section-kicker">Shape your workspace</div><h1>Settings & fields</h1><p>Give each record type the fields you actually use.</p></div></div>
+        <div class="settings-card">
+          <div>
+            <div class="section-kicker">Keep your work portable</div>
+            <h2>Data & recovery</h2>
+            <p>Preview an old Eduport Markdown vault before importing. Export readable Markdown or save a consistent SQLite backup at any time.</p>
+          </div>
+          <div class="settings-actions">
+            <button class="secondary-button" onclick={previewImport}>Import Markdown</button>
+            <button class="secondary-button" onclick={exportMarkdown}><Download size={14} /> Export Markdown</button>
+            <button class="secondary-button" onclick={backupDatabase}>Back up database</button>
+          </div>
+          {#if importPreview}
+            <div class="import-preview">
+              <strong>{importPreview.format}</strong>
+              <p>{importPreview.rows.length} records and {importPreview.file_count} files found. Existing records are kept; conflicting IDs are never overwritten. The source folder stays untouched.</p>
+              {#if importPreview.rows.length}
+                <div class="preview-rows">
+                  {#each importPreview.rows.slice(0, 8) as row}<span>{row.title} <small>{row.type_key}{row.deleted ? ' · trash' : ''}</small></span>{/each}
+                  {#if importPreview.rows.length > 8}<span>And {importPreview.rows.length - 8} more…</span>{/if}
+                </div>
+              {/if}
+              {#each importPreview.warnings.slice(0, 8) as warning}<p class="import-warning">⚠ {warning}</p>{/each}
+              {#each importPreview.blockers as blocker}<p class="error-box">{blocker}</p>{/each}
+              {#if importConflicts.length}<p class="error-box">{importConflicts.length} record IDs already exist in this workspace. Resolve the conflicts before importing.</p>{/if}
+              <button class="primary-button" disabled={!!importPreview.blockers.length || !!importConflicts.length} onclick={applyImport}>Import these records</button>
+            </div>
+          {/if}
+        </div>
+        <div class="settings-card">
+          <div><div class="section-kicker">Your choice of model</div><h2>Assistant provider</h2><p>Ollama keeps prompts on this device. OpenRouter sends each confirmed request to your selected cloud model. Keys are stored in the OS credential store.</p></div>
+          <div class="ai-settings-grid">
+            <label class="form-field"><span>Provider</span><select bind:value={aiConfig.provider} onchange={() => { aiConfig.model = ''; allowCloud = false; }}><option value="ollama">Ollama (local)</option><option value="openrouter">OpenRouter (cloud)</option></select></label>
+            <label class="form-field"><span>Model name</span><input bind:value={aiConfig.model} placeholder={aiConfig.provider === 'ollama' ? 'e.g. llama3.2' : 'e.g. openrouter/free'} /></label>
+            <label class="form-field"><span>Trust mode</span><select bind:value={aiConfig.trust_mode}><option value="controlled">Controlled — review every write</option><option value="delegated">Delegated — chosen types can be changed</option></select></label>
+            {#if aiConfig.trust_mode === 'delegated'}
+              <div class="form-field wide"><span>Types the assistant may change without review</span><div class="delegated-types">{#each types as type}<label><input type="checkbox" checked={aiConfig.delegated_types.includes(type.key)} onchange={() => aiConfig.delegated_types = aiConfig.delegated_types.includes(type.key) ? aiConfig.delegated_types.filter((key) => key !== type.key) : [...aiConfig.delegated_types, type.key]} />{type.label}</label>{/each}</div></div>
+            {/if}
+            {#if aiConfig.provider === 'openrouter'}
+              <label class="form-field wide"><span>OpenRouter API key {keyConfigured ? '(configured)' : ''}</span><input type="password" autocomplete="off" bind:value={openrouterKey} placeholder="Paste a key; it will not appear in exports" /></label>
+              <button class="secondary-button" disabled={!openrouterKey.trim()} onclick={saveOpenRouterKey}>Save key</button>
+            {/if}
+            <button class="primary-button" onclick={saveAiConfig}>Save provider settings</button>
+          </div>
+        </div>
+        <div class="settings-card mail-settings">
+          <div><div class="section-kicker"><Mail size={14} /> Selected message import</div><h2>Gmail</h2><p>Search your account, select messages, inspect their contents, then import. Eduport never sends mail or syncs your inbox. The original message is included in Markdown export.</p></div>
+          <div class="mail-settings-content">
+            {#if gmailAccount}
+              <div class="provider-connected"><Check size={14} /> Connected as {gmailAccount.email}</div>
+              <div class="mail-query"><input aria-label="Search Gmail" bind:value={gmailQuery} placeholder="Gmail search, e.g. from:university.edu" onkeydown={(event) => { if (event.key === 'Enter') void searchGmail(); }} /><button class="secondary-button" disabled={gmailBusy} onclick={searchGmail}><Search size={14} /> Search</button></div>
+              {#if gmailMessages.length}
+                <div class="mail-results">
+                  {#each gmailMessages as item}
+                    <label class="mail-result"><input type="checkbox" disabled={item.imported || gmailBusy} checked={gmailSelected.includes(item.id)} onchange={() => toggleGmail(item.id)} /><span><strong>{item.subject || '(No subject)'}</strong><small>{item.from} · {item.date}{item.imported ? ' · Imported' : ''}</small><em>{item.snippet}</em></span></label>
+                  {/each}
+                </div>
+              {/if}
+              {#if gmailSelected.length}<button class="secondary-button" disabled={gmailBusy} onclick={previewSelectedMail}>Preview {gmailSelected.length} selected {gmailSelected.length === 1 ? 'message' : 'messages'}</button>{/if}
+              {#if gmailPreview.length}
+                <div class="mail-preview"><div class="section-kicker">Import preview</div>
+                  {#each gmailPreview as item}<div class="mail-preview-item"><strong>{item.subject}</strong><small>{item.from} → {item.to} · {item.date} · {item.raw_bytes} original bytes</small><p>{item.body}</p></div>{/each}
+                  <button class="primary-button" disabled={gmailBusy || gmailPreview.some((item) => item.imported)} onclick={importSelectedMail}>Import selected messages</button>
+                </div>
+              {/if}
+              <details class="reconnect-provider"><summary>Switch Gmail account</summary><label class="form-field"><span>Google OAuth desktop client ID</span><input bind:value={gmailClientId} placeholder="...apps.googleusercontent.com" autocomplete="off" /></label><button class="secondary-button" disabled={gmailBusy || !gmailClientId.trim()} onclick={connectGmail}>Connect account</button></details>
+            {:else}
+              <label class="form-field"><span>Google OAuth desktop client ID</span><input bind:value={gmailClientId} placeholder="...apps.googleusercontent.com" autocomplete="off" /></label>
+              <button class="primary-button" disabled={gmailBusy || !gmailClientId.trim()} onclick={connectGmail}>{gmailBusy ? 'Connecting…' : 'Connect Gmail'}</button>
+              <small class="muted">Create a Desktop OAuth client in Google Cloud with the Gmail read-only scope. Your refresh token stays in the OS credential store.</small>
+            {/if}
+          </div>
+        </div>
+        <div class="section-heading"><h2>Record fields</h2><span>Choose a type to add a field</span></div>
+        <div class="list-panel">
+          {#each types as type}
+            <button class="record-row" onclick={() => startFieldEditor(type)}>
+              <span><span class="title">{type.label}</span><span class="sub">{type.key}</span></span>
+              <span class="meta">{type.fields.length} fields</span><span></span><ChevronRight size={15} />
+            </button>
+          {/each}
+        </div>
+      {:else if !loading}
+        <div class="page-head">
+          <div>
+            <div class="section-kicker">{active === 'trash' ? 'Recoverable records' : 'Your research collection'}</div>
+            <h1>{activeType?.label ?? (active === 'all' ? 'All records' : active === 'search' ? 'Search results' : 'Trash')}</h1>
+            <p>{visibleEntries.length} {visibleEntries.length === 1 ? 'record' : 'records'} in this view</p>
+          </div>
+          {#if activeType}<button class="secondary-button" onclick={() => startFieldEditor(activeType)}><Settings2 size={15} /> Fields</button>{/if}
+        </div>
+        <div class:detail-layout={selected} class="list-layout">
+          <div class="list-panel">
+            <div class="list-toolbar">
+              <label class="small-search"><Search size={15} /><input placeholder="Filter this view..." aria-label="Filter this view" bind:value={listQuery} /></label>
+              <span class="muted" style="font-size:11px">{visibleEntries.length} shown</span>
+            </div>
+            {#if visibleEntries.length}
+              {#each visibleEntries as entry}
+                <button class:selected={selectedId === entry.id} class="record-row" onclick={() => choose(entry)}>
+                  <span><span class="title">{entry.title}</span><span class="sub">{entry.body.slice(0, 68) || 'No description'}</span></span>
+                  <span class="meta">Updated {compactDate(entry.updated_at)}</span>
+                  <span class="kind">{typeLabel(entry.type_key)}</span>
+                  <ChevronRight size={15} />
+                </button>
+              {/each}
+            {:else}
+              <div class="empty-state">
+                <BookOpen size={26} />
+                <h3>{active === 'trash' ? 'Trash is empty' : 'Nothing here yet'}</h3>
+                <p>{active === 'trash' ? 'Deleted records can be restored here.' : 'Create a record or change your filter.'}</p>
+                {#if active !== 'trash'}<button class="secondary-button" onclick={() => startCreate()}>Create a record</button>{/if}
+              </div>
+            {/if}
+          </div>
+          {#if selected}
+            <div class="detail-panel">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="record-type"><span class="type-dot"></span>{typeLabel(selected.type_key)}</span>
+                <button class="icon-button" aria-label="Close detail" title="Close detail" onclick={() => selectedId = null}><X size={17} /></button>
+              </div>
+              <h2>{selected.title}</h2>
+              <span class="muted" style="font-size:11px">Updated {compactDate(selected.updated_at)} · Revision {selected.revision}</span>
+              {#if Object.keys(selected.values).length}
+                <dl class="property-list">
+                  {#each Object.entries(selected.values) as [key, value]}
+                    <div class="property-row"><dt>{types.find((type) => type.key === selected.type_key)?.fields.find((field) => field.key === key)?.label ?? key}</dt><dd>{String(value)}</dd></div>
+                  {/each}
+                </dl>
+              {/if}
+              <p class="body">{selected.body || 'Add notes and context to this record.'}</p>
+              <div class="section-heading"><h3>Connections</h3><button class="secondary-button" onclick={() => startRelation(selected)}><Plus size={14} /> Link</button></div>
+              {#if relations.length}
+                {#each relations as relation}
+                  {@const otherId = relation.source_id === selected.id ? relation.target_id : relation.source_id}
+                  {@const other = entries.find((entry) => entry.id === otherId)}
+                  <div class="relation-row"><span><strong>{other?.title ?? 'Missing record'}</strong> <span class="muted"> · {relation.role || relation.kind}{relation.start_date ? ` · ${relation.start_date}` : ''}{relation.end_date ? `–${relation.end_date}` : ''}</span></span><button aria-label="Remove relation" title="Remove relation" onclick={() => removeRelation(relation.id)}><X size={14} /></button></div>
+                {/each}
+              {:else}
+                <p class="muted" style="font-size:12px">No connected records yet.</p>
+              {/if}
+              <div class="actions">
+                {#if selected.deleted_at === null}
+                  <button class="secondary-button" onclick={() => startEdit(selected)}>Edit record</button>
+                  <button class="secondary-button" onclick={() => { assistantContext = [selected.id]; navigate('assistant'); }}><Sparkles size={14} /> Ask assistant</button>
+                  <button class="secondary-button danger-button" onclick={() => toggleDeleted(selected)}><Trash2 size={14} /> Move to Trash</button>
+                {:else}
+                  <button class="secondary-button" onclick={() => toggleDeleted(selected)}><ArrowLeft size={14} /> Restore</button>
+                {/if}
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </main>
+  </div>
+</div>
+
+{#if editorOpen}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) editorOpen = false; }}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit record' : 'New record'}>
+      <div class="dialog-head"><div><div class="section-kicker">{draft.id ? 'Update your research' : 'Add to your workspace'}</div><h2>{draft.id ? 'Edit record' : 'New record'}</h2></div><button class="icon-button" aria-label="Close" onclick={() => editorOpen = false}><X size={18} /></button></div>
+      <form onsubmit={(event) => { event.preventDefault(); void saveEntry(); }}>
+        <div class="form-grid">
+          <label class="form-field"><span>Record type</span><select bind:value={draft.type_key} disabled={!!draft.id}>{#each types as type}<option value={type.key}>{type.label}</option>{/each}</select></label>
+          <label class="form-field"><span>Title</span><input bind:value={draft.title} required placeholder="A clear, searchable name" /></label>
+          {#each editType?.fields ?? [] as field}
+            <label class="form-field" class:wide={field.kind === 'text'}>
+              <span>{field.label}{field.required ? ' *' : ''}</span>
+              {#if field.kind === 'select'}
+                <select value={String(draft.values[field.key] ?? '')} onchange={(event) => draft.values[field.key] = event.currentTarget.value}>
+                  <option value="">Not set</option>
+                  {#each field.options as option}<option value={option}>{option.replace(/_/g, ' ')}</option>{/each}
+                </select>
+              {:else if field.kind === 'boolean'}
+                <input type="checkbox" checked={Boolean(draft.values[field.key])} onchange={(event) => draft.values[field.key] = event.currentTarget.checked} />
+              {:else}
+                <input type={field.kind === 'date' ? 'date' : field.kind === 'number' ? 'number' : field.kind === 'url' ? 'url' : 'text'} value={String(draft.values[field.key] ?? '')} oninput={(event) => draft.values[field.key] = field.kind === 'number' ? (event.currentTarget.value ? Number(event.currentTarget.value) : '') : event.currentTarget.value} />
+              {/if}
+            </label>
+          {/each}
+          <label class="form-field wide"><span>Notes & context</span><textarea bind:value={draft.body} placeholder="What matters about this record?"></textarea></label>
+          <label class="form-field wide"><span>Tags (comma separated)</span><input bind:value={tagText} placeholder="e.g. fall-2027, reach" /></label>
+        </div>
+        {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+        <div class="dialog-footer"><button type="button" class="secondary-button" onclick={() => editorOpen = false}>Cancel</button><button type="submit" class="primary-button"><Check size={15} /> Save record</button></div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if relationOpen}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) relationOpen = false; }}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Link records">
+      <div class="dialog-head"><div><div class="section-kicker">Connect the dots</div><h2>Link a record</h2></div><button class="icon-button" aria-label="Close" onclick={() => relationOpen = false}><X size={18} /></button></div>
+      <div class="form-grid">
+        <label class="form-field wide"><span>Target record</span><select bind:value={relationDraft.target_id}><option value="">Choose a record</option>{#each liveEntries.filter((item) => item.id !== relationDraft.source_id) as entry}<option value={entry.id}>{entry.title} · {typeLabel(entry.type_key)}</option>{/each}</select></label>
+        <label class="form-field"><span>Connection</span><input bind:value={relationDraft.kind} placeholder="related_to" /></label>
+        <label class="form-field"><span>Role (optional)</span><input value={relationDraft.role ?? ''} oninput={(event) => relationDraft.role = event.currentTarget.value || null} placeholder="e.g. PI, author, member" /></label>
+        <label class="form-field"><span>Start date (optional)</span><input type="date" value={relationDraft.start_date ?? ''} oninput={(event) => relationDraft.start_date = event.currentTarget.value || null} /></label>
+        <label class="form-field"><span>End date (optional)</span><input type="date" value={relationDraft.end_date ?? ''} oninput={(event) => relationDraft.end_date = event.currentTarget.value || null} /></label>
+      </div>
+      {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+      <div class="dialog-footer"><button class="secondary-button" onclick={() => relationOpen = false}>Cancel</button><button class="primary-button" onclick={saveRelation}>Add connection</button></div>
+    </div>
+  </div>
+{/if}
+
+{#if editingType}
+  <div class="dialog-scrim" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) editingType = null; }}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Customize fields">
+      <div class="dialog-head"><div><div class="section-kicker">Make it yours</div><h2>{editingType.label} fields</h2></div><button class="icon-button" aria-label="Close" onclick={() => editingType = null}><X size={18} /></button></div>
+      <div class="list-panel">
+        {#each editingType.fields as field}<div class="relation-row" style="padding:12px 15px"><span>{field.label}</span><span class="muted">{field.kind}</span></div>{/each}
+        {#if editingType.fields.length === 0}<div class="empty-state" style="padding:25px">No fields yet.</div>{/if}
+      </div>
+      <div class="section-heading"><h3>Add a field</h3></div>
+      <div class="form-grid">
+        <label class="form-field"><span>Key</span><input bind:value={newField.key} placeholder="e.g. priority" /></label>
+        <label class="form-field"><span>Label</span><input bind:value={newField.label} placeholder="e.g. Priority" /></label>
+        <label class="form-field"><span>Type</span><select bind:value={newField.kind}><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="boolean">Checkbox</option><option value="url">URL</option><option value="select">Select</option></select></label>
+        {#if newField.kind === 'select'}<label class="form-field wide"><span>Choices (comma separated)</span><input bind:value={newFieldOptions} placeholder="e.g. planned, active, complete" /></label>{/if}
+      </div>
+      {#if error}<div class="error-box" role="alert">{error}</div>{/if}
+      <div class="dialog-footer"><button class="secondary-button" onclick={() => editingType = null}>Done</button><button class="primary-button" onclick={addField}><Plus size={15} /> Add field</button></div>
+    </div>
+  </div>
+{/if}
+
+{#if toast}<div class="toast" role="status">{toast}</div>{/if}
+
+<style>
+  .sidebar-type-icon { width: 17px; height: 17px; display: grid; place-items: center; font-size: 9px; font-weight: 700; border-radius: 4px; background: #425a4d; color: #d2dfd2; }
+</style>

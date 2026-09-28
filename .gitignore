@@ -1,57 +1,12 @@
-# Brainstorming / planning session artifacts
-.superpowers/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-.venv/
-venv/
-.python-version
-dist/
-build/
-
-# Node / Svelte / Vite
-node_modules/
-.svelte-kit/
-.vite/
-*.tsbuildinfo
-
-# Rust / Tauri
-target/
-Cargo.lock
-crates/eduport-tauri/target/
-crates/eduport-tauri/binaries/*
-!crates/eduport-tauri/binaries/.gitkeep
-
-# Runtime — Eduport's own caches and ephemeral state
-.eduport-index.sqlite
-.eduport-index.sqlite-*
-.eduport-trash/
-
-# Secrets
+.DS_Store
+node_modules
+/build
+/.svelte-kit
+/package
+/src-tauri/target
+/.playwright-cli
 .env
 .env.*
 !.env.example
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
-logs/
-.claude/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
