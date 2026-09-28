@@ -122,7 +122,7 @@ impl Db {
              PRAGMA synchronous = FULL;",
         )?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > 2 {
+        if version > 3 {
             return Err(DbError::Invalid(format!(
                 "database schema version {version} is newer than this app"
             )));
@@ -208,6 +208,9 @@ impl Db {
         }
         let mut db = Self { conn };
         db.seed_types()?;
+        if version < 3 {
+            db.upgrade_builtin_fields()?;
+        }
         Ok(db)
     }
 
@@ -220,6 +223,46 @@ impl Db {
                 params![key, label, icon, serde_json::to_string(&fields).unwrap()],
             )?;
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn upgrade_builtin_fields(&mut self) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for (key, _, _, defaults) in built_in_types() {
+            let stored: String = tx.query_row(
+                "SELECT fields_json FROM record_types WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )?;
+            let mut fields: Vec<FieldDef> = serde_json::from_str(&stored)
+                .map_err(|error| DbError::Invalid(error.to_string()))?;
+            let mut ordered = Vec::new();
+            for default in defaults {
+                if let Some(index) = fields.iter().position(|field| field.key == default.key) {
+                    let mut existing = fields.remove(index);
+                    if default.required {
+                        existing.required = true;
+                    }
+                    if existing.kind == "select" {
+                        for option in default.options {
+                            if !existing.options.contains(&option) {
+                                existing.options.push(option);
+                            }
+                        }
+                    }
+                    ordered.push(existing);
+                } else {
+                    ordered.push(default);
+                }
+            }
+            ordered.extend(fields);
+            tx.execute(
+                "UPDATE record_types SET fields_json = ?2 WHERE key = ?1",
+                params![key, serde_json::to_string(&ordered).unwrap()],
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 3)?;
         tx.commit()?;
         Ok(())
     }
@@ -311,7 +354,7 @@ impl Db {
             .into_iter()
             .find(|item| item.key == input.type_key)
             .ok_or_else(|| DbError::Invalid(format!("unknown type: {}", input.type_key)))?;
-        validate_record(&input, &kind)?;
+        validate_record(&input, &kind, true)?;
         let now = unix_seconds();
         let tx = self.conn.transaction()?;
         let id = if let Some(id) = input.id {
@@ -563,6 +606,7 @@ impl Db {
                     expected_revision: None,
                 },
                 definition,
+                false,
             )?;
         }
         for (path, _) in files {
@@ -811,7 +855,7 @@ fn validate_type(definition: &RecordType) -> Result<()> {
     Ok(())
 }
 
-fn validate_record(input: &RecordInput, kind: &RecordType) -> Result<()> {
+fn validate_record(input: &RecordInput, kind: &RecordType, enforce_required: bool) -> Result<()> {
     if input.title.trim().is_empty() {
         return Err(DbError::Invalid("record title is required".into()));
     }
@@ -835,7 +879,7 @@ fn validate_record(input: &RecordInput, kind: &RecordType) -> Result<()> {
     }
     for field in &kind.fields {
         let value = values.get(&field.key).unwrap_or(&Value::Null);
-        if field.required && (value.is_null() || value == "") {
+        if enforce_required && field.required && (value.is_null() || value == "") {
             return Err(DbError::Invalid(format!("{} is required", field.label)));
         }
         if value.is_null() {
@@ -877,6 +921,11 @@ fn select(key: &str, label: &str, options: &[&str]) -> FieldDef {
     }
 }
 
+fn required(mut definition: FieldDef) -> FieldDef {
+    definition.required = true;
+    definition
+}
+
 fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldDef>)> {
     vec![
         (
@@ -904,6 +953,7 @@ fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldD
             "user",
             vec![
                 field("email", "Email", "text"),
+                field("position", "Position", "text"),
                 field("website", "Website", "url"),
             ],
         ),
@@ -912,7 +962,8 @@ fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldD
             "Programs",
             "graduation",
             vec![
-                select("level", "Level", &["masters", "phd"]),
+                required(select("level", "Level", &["masters", "phd"])),
+                field("department", "Department", "text"),
                 field("website", "Website", "url"),
             ],
         ),
@@ -921,7 +972,7 @@ fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldD
             "Applications",
             "folder",
             vec![
-                select(
+                required(select(
                     "status",
                     "Status",
                     &[
@@ -933,7 +984,7 @@ fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldD
                         "rejected",
                         "withdrawn",
                     ],
-                ),
+                )),
                 field("intake", "Intake", "text"),
                 field("deadline", "Deadline", "date"),
             ],
@@ -972,13 +1023,17 @@ fn built_in_types() -> Vec<(&'static str, &'static str, &'static str, Vec<FieldD
             "document",
             "Documents",
             "file",
-            vec![select(
-                "status",
-                "Status",
-                &["requested", "drafting", "received"],
-            )],
+            vec![
+                select("status", "Status", &["requested", "drafting", "received"]),
+                field("source_url", "Source URL", "url"),
+            ],
         ),
-        ("note", "Notes", "note", vec![]),
+        (
+            "note",
+            "Notes",
+            "note",
+            vec![field("source_url", "Source URL", "url")],
+        ),
     ]
 }
 
@@ -1020,7 +1075,7 @@ mod tests {
                 type_key: "program".into(),
                 title: "Stale".into(),
                 body: String::new(),
-                values: empty_object(),
+                values: serde_json::json!({"level": "masters"}),
                 tags: vec![],
                 expected_revision: Some(1),
             }),
@@ -1132,6 +1187,68 @@ mod tests {
                 .unwrap()[0]
                 .title,
             "Recover me"
+        );
+    }
+
+    #[test]
+    fn built_in_fields_are_upgraded_without_losing_custom_fields_or_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.sqlite");
+        let db = Db::open(&path).unwrap();
+        let mut old_program = db
+            .list_types()
+            .unwrap()
+            .into_iter()
+            .find(|kind| kind.key == "program")
+            .unwrap();
+        old_program.fields = vec![
+            select("level", "Level", &["masters", "phd"]),
+            field("my_field", "My field", "text"),
+        ];
+        db.conn
+            .execute(
+                "UPDATE record_types SET fields_json = ?1 WHERE key = 'program'",
+                [serde_json::to_string(&old_program.fields).unwrap()],
+            )
+            .unwrap();
+        db.conn.execute(
+            "INSERT INTO records(id, type_key, title, body, values_json, tags_json, created_at, updated_at)
+             VALUES('legacy', 'program', 'Old program', '', '{}', '[]', 1, 1)",
+            [],
+        ).unwrap();
+        db.conn.pragma_update(None, "user_version", 2).unwrap();
+        drop(db);
+
+        let mut upgraded = Db::open(&path).unwrap();
+        let types = upgraded.list_types().unwrap();
+        assert!(types.iter().all(|kind| !kind.fields.is_empty()));
+        let program = types.iter().find(|kind| kind.key == "program").unwrap();
+        assert!(program.fields.iter().any(|field| field.key == "my_field"));
+        assert!(
+            program
+                .fields
+                .iter()
+                .find(|field| field.key == "level")
+                .unwrap()
+                .required
+        );
+        assert!(program.fields.iter().any(|field| field.key == "department"));
+        assert_eq!(
+            upgraded.get_record("legacy").unwrap().unwrap().title,
+            "Old program"
+        );
+        assert!(
+            upgraded
+                .put_record(RecordInput {
+                    id: None,
+                    type_key: "program".into(),
+                    title: "Incomplete".into(),
+                    body: String::new(),
+                    values: empty_object(),
+                    tags: vec![],
+                    expected_revision: None,
+                })
+                .is_err()
         );
     }
 }

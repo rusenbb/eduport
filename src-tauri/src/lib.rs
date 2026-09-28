@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-mod ai;
-mod db;
+pub mod ai;
+pub mod db;
 mod mail;
 mod portable;
 

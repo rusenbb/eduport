@@ -1,8 +1,9 @@
 <script lang="ts">
   import {
-    ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, CircleHelp,
-    Clock3, Download, FileText, FolderKanban, Home, Link2, Mail, Plus, Search,
-    Settings2, Sparkles, Trash2, X
+    ArrowLeft, ArrowRight, BookOpen, BookText, Building2, Check, ChevronRight, CircleHelp,
+    Clock3, Download, FileText, FlaskConical, FolderKanban, GraduationCap, GripVertical,
+    Home, Layers3, Link2, Mail, Plus, Search, Settings2, Sparkles, StickyNote,
+    Trash2, UserRound, X
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import { api, inDesktop } from '$lib/api';
@@ -38,7 +39,12 @@
   let gmailSelected = $state<string[]>([]);
   let gmailPreview = $state<MailPreview[]>([]);
   let gmailBusy = $state(false);
-  let newField = $state({ key: '', label: '', kind: 'text' as FieldDef['kind'] });
+  const defaultTypeOrder = ['university', 'lab', 'person', 'program', 'application', 'publication', 'project', 'mail', 'document', 'note'];
+  let sidebarOrder = $state<string[]>(defaultTypeOrder);
+  let draggedType = $state<string | null>(null);
+  let dropTarget = $state<string | null>(null);
+  let dragFinishedAt = 0;
+  let newField = $state({ key: '', label: '', kind: 'text' as FieldDef['kind'], required: false });
   let newFieldOptions = $state('');
   let relationDraft = $state<RelationInput>({
     source_id: '', target_id: '', kind: 'related_to', role: null,
@@ -51,6 +57,11 @@
   const selected = $derived(entries.find((entry) => entry.id === selectedId) ?? null);
   const activeType = $derived(types.find((type) => type.key === active) ?? null);
   const editType = $derived(types.find((type) => type.key === draft.type_key) ?? null);
+  const orderedTypes = $derived([...types].sort((a, b) => {
+    const aIndex = sidebarOrder.indexOf(a.key);
+    const bIndex = sidebarOrder.indexOf(b.key);
+    return (aIndex < 0 ? 999 : aIndex) - (bIndex < 0 ? 999 : bIndex) || a.label.localeCompare(b.label);
+  }));
   const liveEntries = $derived(entries.filter((entry) => entry.deleted_at === null));
   const visibleEntries = $derived.by(() => {
     let pool = active === 'trash'
@@ -90,6 +101,8 @@
     error = '';
     try {
       [types, entries] = await Promise.all([api.listTypes(), api.listRecords(undefined, true)]);
+      const savedOrder = await api.getSetting<string[]>('sidebar_order');
+      if (Array.isArray(savedOrder)) sidebarOrder = savedOrder.filter((key): key is string => typeof key === 'string');
       aiConfig = await api.getAiConfig();
       keyConfigured = await api.hasOpenRouterKey();
       gmailAccount = await api.getGmailAccount();
@@ -126,16 +139,26 @@
   }
 
   function startCreate(typeKey?: string) {
+    const chosenType = typeKey ?? (activeType?.key || 'note');
     draft = {
-      type_key: typeKey ?? (activeType?.key || 'note'),
+      type_key: chosenType,
       title: '',
       body: '',
-      values: {},
+      values: initialValues(chosenType),
       tags: []
     };
     error = '';
     tagText = '';
     editorOpen = true;
+  }
+
+  function initialValues(typeKey: string): Record<string, unknown> {
+    return typeKey === 'application' ? { status: 'planning' } : {};
+  }
+
+  function changeDraftType(typeKey: string) {
+    draft.type_key = typeKey;
+    draft.values = initialValues(typeKey);
   }
 
   function startEdit(entry: Entry) {
@@ -144,7 +167,7 @@
       type_key: entry.type_key,
       title: entry.title,
       body: entry.body,
-      values: structuredClone(entry.values),
+      values: { ...entry.values },
       tags: [...entry.tags],
       expected_revision: entry.revision
     };
@@ -233,8 +256,8 @@
   }
 
   function startFieldEditor(type: RecordType) {
-    editingType = structuredClone(type);
-    newField = { key: '', label: '', kind: 'text' };
+    editingType = { ...type, fields: type.fields.map((field) => ({ ...field, options: [...field.options] })) };
+    newField = { key: '', label: '', kind: 'text', required: false };
     newFieldOptions = '';
     error = '';
   }
@@ -256,14 +279,14 @@
         label: newField.label.trim(),
         kind: newField.kind,
         options: newField.kind === 'select' ? [...new Set(options)] : [],
-        required: false
+        required: newField.required
       }]
     };
     try {
       const saved = await api.putType(updated);
       types = types.map((type) => type.key === saved.key ? saved : type);
       editingType = saved;
-      newField = { key: '', label: '', kind: 'text' };
+      newField = { key: '', label: '', kind: 'text', required: false };
       newFieldOptions = '';
       notify('Field added');
     } catch (cause) {
@@ -363,6 +386,7 @@
   async function approveSuggestion(index: number) {
     const result = assistantResult?.suggestions[index];
     if (!result || result.status !== 'pending') return;
+    if (!inDesktop && !await confirmAction(`Apply the AI suggestion to ${result.suggestion.title}?`)) return;
     error = '';
     try {
       await api.approveAiSuggestion(result.suggestion);
@@ -453,12 +477,48 @@
     return new Date(seconds * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
-  function recordIcon(key: string): string {
+  function recordIcon(key: string) {
     return ({
-      university: 'U', lab: 'L', person: 'P', program: 'Pr',
-      application: 'A', publication: 'Pb', project: 'Pj',
-      mail: 'M', document: 'D', note: 'N'
-    } as Record<string, string>)[key] ?? key.slice(0, 2).toUpperCase();
+      university: Building2, lab: FlaskConical, person: UserRound, program: GraduationCap,
+      application: FolderKanban, publication: BookText, project: Layers3,
+      mail: Mail, document: FileText, note: StickyNote
+    } as Record<string, typeof Home>)[key] ?? FileText;
+  }
+
+  async function moveType(source: string, target: string) {
+    if (source === target) return;
+    const order = orderedTypes.map((type) => type.key);
+    const from = order.indexOf(source);
+    const to = order.indexOf(target);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1);
+    order.splice(to, 0, source);
+    sidebarOrder = order;
+    try {
+      await api.putSetting('sidebar_order', order);
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
+  function dropType(event: DragEvent, target: string) {
+    event.preventDefault();
+    const source = draggedType;
+    dragFinishedAt = Date.now();
+    draggedType = null;
+    dropTarget = null;
+    if (source) void moveType(source, target);
+  }
+
+  function typeKeydown(event: KeyboardEvent, key: string) {
+    if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const order = orderedTypes.map((type) => type.key);
+    const index = order.indexOf(key);
+    const other = event.key === 'ArrowUp' ? order[index - 1] : order[index + 1];
+    if (other) {
+      event.preventDefault();
+      void moveType(key, other);
+    }
   }
 
   function onGlobalKey(event: KeyboardEvent) {
@@ -498,11 +558,12 @@
         <Sparkles size={16} strokeWidth={1.8} /> Assistant
       </button>
       <div class="nav-label">Workspace</div>
-      {#each types as type}
-        <button class:active={active === type.key} class="nav-button" onclick={() => navigate(type.key)}>
-          <span class="sidebar-type-icon">{recordIcon(type.key)}</span>
-          {type.label}
+      {#each orderedTypes as type (type.key)}
+        {@const TypeIcon = recordIcon(type.key)}
+        <button class:active={active === type.key} class:drag-target={dropTarget === type.key} class:dragging={draggedType === type.key} class="nav-button type-nav" draggable="true" ondragstart={(event) => { draggedType = type.key; event.dataTransfer?.setData('text/plain', type.key); }} ondragend={() => { dragFinishedAt = Date.now(); draggedType = null; dropTarget = null; }} ondragover={(event) => { event.preventDefault(); dropTarget = type.key; }} ondragleave={() => { if (dropTarget === type.key) dropTarget = null; }} ondrop={(event) => dropType(event, type.key)} onkeydown={(event) => typeKeydown(event, type.key)} onclick={() => { if (Date.now() - dragFinishedAt > 350) navigate(type.key); }} title="Drag to reorder, or use Alt + arrow keys">
+          <TypeIcon size={16} strokeWidth={1.8} /> <span class="nav-text">{type.label}</span>
           {#if countByType[type.key]}<span class="count">{countByType[type.key]}</span>{/if}
+          <GripVertical class="drag-grip" size={14} strokeWidth={1.7} />
         </button>
       {/each}
       <div class="nav-divider"></div>
@@ -525,12 +586,13 @@
         <Search size={15} strokeWidth={1.7} />
         <input id="global-search" aria-label="Search records" placeholder="Search your workspace..." bind:value={searchQuery} oninput={() => { if (searchQuery) navigate('search'); else if (active === 'search') navigate('home'); }} />
       </label>
-      {#if !inDesktop}<span class="preview-pill">BROWSER PREVIEW</span>{/if}
+      {#if !inDesktop}<span class="preview-pill">LOCAL SQLITE</span>{/if}
       <button class="topbar-icon" title="Help" aria-label="Help" onclick={() => notify('Tip: use ⌘K to search and ⌘N to create a record.')}><CircleHelp size={18} /></button>
       <button class="primary-button" onclick={() => startCreate()}><Plus size={15} /> New record</button>
     </header>
 
     <main class="content">
+      {#if error && !editorOpen && !editingType && !relationOpen}<div class="error-box page-error" role="alert">{error}</div>{/if}
       {#if loading}
         <div class="empty-state"><Clock3 size={25} /> <h3>Opening your workspace…</h3></div>
       {:else if error && !editorOpen && !relationOpen && !editingType}
@@ -605,6 +667,15 @@
         </div>
       {:else if !loading && active === 'settings'}
         <div class="page-head"><div><div class="section-kicker">Shape your workspace</div><h1>Settings & fields</h1><p>Give each record type the fields you actually use.</p></div></div>
+        <div class="section-heading first-section-heading"><h2>Record fields</h2><span>Choose a type to add a field</span></div>
+        <div class="list-panel settings-fields-list">
+          {#each orderedTypes as type}
+            <button class="record-row" onclick={() => startFieldEditor(type)}>
+              <span><span class="title">{type.label}</span><span class="sub">{type.key}</span></span>
+              <span class="meta">{type.fields.length} {type.fields.length === 1 ? 'field' : 'fields'}</span><span></span><ChevronRight size={15} />
+            </button>
+          {/each}
+        </div>
         <div class="settings-card">
           <div>
             <div class="section-kicker">Keep your work portable</div>
@@ -612,10 +683,11 @@
             <p>Preview an old Eduport Markdown vault before importing. Export readable Markdown or save a consistent SQLite backup at any time.</p>
           </div>
           <div class="settings-actions">
-            <button class="secondary-button" onclick={previewImport}>Import Markdown</button>
-            <button class="secondary-button" onclick={exportMarkdown}><Download size={14} /> Export Markdown</button>
-            <button class="secondary-button" onclick={backupDatabase}>Back up database</button>
+            <button class="secondary-button" disabled={!inDesktop} onclick={previewImport}>Import Markdown</button>
+            <button class="secondary-button" disabled={!inDesktop} onclick={exportMarkdown}><Download size={14} /> Export Markdown</button>
+            <button class="secondary-button" disabled={!inDesktop} onclick={backupDatabase}>Back up database</button>
           </div>
+          {#if !inDesktop}<small class="desktop-only-note">File dialogs are available in the desktop app. Records here use the same SQLite database.</small>{/if}
           {#if importPreview}
             <div class="import-preview">
               <strong>{importPreview.format}</strong>
@@ -651,10 +723,11 @@
         </div>
         <div class="settings-card mail-settings">
           <div><div class="section-kicker"><Mail size={14} /> Selected message import</div><h2>Gmail</h2><p>Search your account, select messages, inspect their contents, then import. Eduport never sends mail or syncs your inbox. The original message is included in Markdown export.</p></div>
+          {#if !inDesktop}<small class="desktop-only-note">Gmail sign-in and import use the desktop app.</small>{/if}
           <div class="mail-settings-content">
             {#if gmailAccount}
               <div class="provider-connected"><Check size={14} /> Connected as {gmailAccount.email}</div>
-              <div class="mail-query"><input aria-label="Search Gmail" bind:value={gmailQuery} placeholder="Gmail search, e.g. from:university.edu" onkeydown={(event) => { if (event.key === 'Enter') void searchGmail(); }} /><button class="secondary-button" disabled={gmailBusy} onclick={searchGmail}><Search size={14} /> Search</button></div>
+              <div class="mail-query"><input aria-label="Search Gmail" disabled={!inDesktop} bind:value={gmailQuery} placeholder="Gmail search, e.g. from:university.edu" onkeydown={(event) => { if (event.key === 'Enter') void searchGmail(); }} /><button class="secondary-button" disabled={gmailBusy || !inDesktop} onclick={searchGmail}><Search size={14} /> Search</button></div>
               {#if gmailMessages.length}
                 <div class="mail-results">
                   {#each gmailMessages as item}
@@ -662,29 +735,20 @@
                   {/each}
                 </div>
               {/if}
-              {#if gmailSelected.length}<button class="secondary-button" disabled={gmailBusy} onclick={previewSelectedMail}>Preview {gmailSelected.length} selected {gmailSelected.length === 1 ? 'message' : 'messages'}</button>{/if}
+              {#if gmailSelected.length}<button class="secondary-button" disabled={gmailBusy || !inDesktop} onclick={previewSelectedMail}>Preview {gmailSelected.length} selected {gmailSelected.length === 1 ? 'message' : 'messages'}</button>{/if}
               {#if gmailPreview.length}
                 <div class="mail-preview"><div class="section-kicker">Import preview</div>
                   {#each gmailPreview as item}<div class="mail-preview-item"><strong>{item.subject}</strong><small>{item.from} → {item.to} · {item.date} · {item.raw_bytes} original bytes</small><p>{item.body}</p></div>{/each}
-                  <button class="primary-button" disabled={gmailBusy || gmailPreview.some((item) => item.imported)} onclick={importSelectedMail}>Import selected messages</button>
+                  <button class="primary-button" disabled={gmailBusy || !inDesktop || gmailPreview.some((item) => item.imported)} onclick={importSelectedMail}>Import selected messages</button>
                 </div>
               {/if}
-              <details class="reconnect-provider"><summary>Switch Gmail account</summary><label class="form-field"><span>Google OAuth desktop client ID</span><input bind:value={gmailClientId} placeholder="...apps.googleusercontent.com" autocomplete="off" /></label><button class="secondary-button" disabled={gmailBusy || !gmailClientId.trim()} onclick={connectGmail}>Connect account</button></details>
+              <details class="reconnect-provider"><summary>Switch Gmail account</summary><label class="form-field"><span>Google OAuth desktop client ID</span><input bind:value={gmailClientId} placeholder="...apps.googleusercontent.com" autocomplete="off" /></label><button class="secondary-button" disabled={gmailBusy || !inDesktop || !gmailClientId.trim()} onclick={connectGmail}>Connect account</button></details>
             {:else}
               <label class="form-field"><span>Google OAuth desktop client ID</span><input bind:value={gmailClientId} placeholder="...apps.googleusercontent.com" autocomplete="off" /></label>
-              <button class="primary-button" disabled={gmailBusy || !gmailClientId.trim()} onclick={connectGmail}>{gmailBusy ? 'Connecting…' : 'Connect Gmail'}</button>
+              <button class="primary-button" disabled={gmailBusy || !inDesktop || !gmailClientId.trim()} onclick={connectGmail}>{gmailBusy ? 'Connecting…' : 'Connect Gmail'}</button>
               <small class="muted">Create a Desktop OAuth client in Google Cloud with the Gmail read-only scope. Your refresh token stays in the OS credential store.</small>
             {/if}
           </div>
-        </div>
-        <div class="section-heading"><h2>Record fields</h2><span>Choose a type to add a field</span></div>
-        <div class="list-panel">
-          {#each types as type}
-            <button class="record-row" onclick={() => startFieldEditor(type)}>
-              <span><span class="title">{type.label}</span><span class="sub">{type.key}</span></span>
-              <span class="meta">{type.fields.length} fields</span><span></span><ChevronRight size={15} />
-            </button>
-          {/each}
         </div>
       {:else if !loading}
         <div class="page-head">
@@ -768,20 +832,20 @@
       <div class="dialog-head"><div><div class="section-kicker">{draft.id ? 'Update your research' : 'Add to your workspace'}</div><h2>{draft.id ? 'Edit record' : 'New record'}</h2></div><button class="icon-button" aria-label="Close" onclick={() => editorOpen = false}><X size={18} /></button></div>
       <form onsubmit={(event) => { event.preventDefault(); void saveEntry(); }}>
         <div class="form-grid">
-          <label class="form-field"><span>Record type</span><select bind:value={draft.type_key} disabled={!!draft.id}>{#each types as type}<option value={type.key}>{type.label}</option>{/each}</select></label>
-          <label class="form-field"><span>Title</span><input bind:value={draft.title} required placeholder="A clear, searchable name" /></label>
-          {#each editType?.fields ?? [] as field}
+          <label class="form-field"><span>Record type</span><select value={draft.type_key} disabled={!!draft.id} onchange={(event) => changeDraftType(event.currentTarget.value)}>{#each orderedTypes as type}<option value={type.key}>{type.label}</option>{/each}</select></label>
+          <label class="form-field"><span>Title <b class="required-mark">Required</b></span><input bind:value={draft.title} required placeholder="A clear, searchable name" /></label>
+          {#each editType?.fields ?? [] as field (field.key)}
             <label class="form-field" class:wide={field.kind === 'text'}>
-              <span>{field.label}{field.required ? ' *' : ''}</span>
+              <span>{field.label} <b class:required-mark={field.required} class:optional-mark={!field.required}>{field.required ? 'Required' : 'Optional'}</b></span>
               {#if field.kind === 'select'}
-                <select value={String(draft.values[field.key] ?? '')} onchange={(event) => draft.values[field.key] = event.currentTarget.value}>
-                  <option value="">Not set</option>
+                <select required={field.required} value={String(draft.values[field.key] ?? '')} onchange={(event) => draft.values[field.key] = event.currentTarget.value}>
+                  <option value="">Choose {field.label.toLowerCase()}</option>
                   {#each field.options as option}<option value={option}>{option.replace(/_/g, ' ')}</option>{/each}
                 </select>
               {:else if field.kind === 'boolean'}
-                <input type="checkbox" checked={Boolean(draft.values[field.key])} onchange={(event) => draft.values[field.key] = event.currentTarget.checked} />
+                <select required={field.required} value={draft.values[field.key] === true ? 'true' : draft.values[field.key] === false ? 'false' : ''} onchange={(event) => draft.values[field.key] = event.currentTarget.value === '' ? null : event.currentTarget.value === 'true'}><option value="">Choose an answer</option><option value="true">Yes</option><option value="false">No</option></select>
               {:else}
-                <input type={field.kind === 'date' ? 'date' : field.kind === 'number' ? 'number' : field.kind === 'url' ? 'url' : 'text'} value={String(draft.values[field.key] ?? '')} oninput={(event) => draft.values[field.key] = field.kind === 'number' ? (event.currentTarget.value ? Number(event.currentTarget.value) : '') : event.currentTarget.value} />
+                <input required={field.required} type={field.kind === 'date' ? 'date' : field.kind === 'number' ? 'number' : field.kind === 'url' ? 'url' : 'text'} value={String(draft.values[field.key] ?? '')} oninput={(event) => draft.values[field.key] = field.kind === 'number' ? (event.currentTarget.value ? Number(event.currentTarget.value) : '') : event.currentTarget.value} />
               {/if}
             </label>
           {/each}
@@ -817,7 +881,7 @@
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Customize fields">
       <div class="dialog-head"><div><div class="section-kicker">Make it yours</div><h2>{editingType.label} fields</h2></div><button class="icon-button" aria-label="Close" onclick={() => editingType = null}><X size={18} /></button></div>
       <div class="list-panel">
-        {#each editingType.fields as field}<div class="relation-row" style="padding:12px 15px"><span>{field.label}</span><span class="muted">{field.kind}</span></div>{/each}
+        {#each editingType.fields as field}<div class="relation-row" style="padding:12px 15px"><span>{field.label} <small class:required-mark={field.required} class:optional-mark={!field.required}>{field.required ? 'Required' : 'Optional'}</small></span><span class="muted">{field.kind}</span></div>{/each}
         {#if editingType.fields.length === 0}<div class="empty-state" style="padding:25px">No fields yet.</div>{/if}
       </div>
       <div class="section-heading"><h3>Add a field</h3></div>
@@ -826,6 +890,7 @@
         <label class="form-field"><span>Label</span><input bind:value={newField.label} placeholder="e.g. Priority" /></label>
         <label class="form-field"><span>Type</span><select bind:value={newField.kind}><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="boolean">Checkbox</option><option value="url">URL</option><option value="select">Select</option></select></label>
         {#if newField.kind === 'select'}<label class="form-field wide"><span>Choices (comma separated)</span><input bind:value={newFieldOptions} placeholder="e.g. planned, active, complete" /></label>{/if}
+        <label class="field-required-toggle"><input type="checkbox" bind:checked={newField.required} /> Require a value for new records</label>
       </div>
       {#if error}<div class="error-box" role="alert">{error}</div>{/if}
       <div class="dialog-footer"><button class="secondary-button" onclick={() => editingType = null}>Done</button><button class="primary-button" onclick={addField}><Plus size={15} /> Add field</button></div>
@@ -834,7 +899,3 @@
 {/if}
 
 {#if toast}<div class="toast" role="status">{toast}</div>{/if}
-
-<style>
-  .sidebar-type-icon { width: 17px; height: 17px; display: grid; place-items: center; font-size: 9px; font-weight: 700; border-radius: 4px; background: #425a4d; color: #d2dfd2; }
-</style>

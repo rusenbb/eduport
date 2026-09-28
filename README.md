@@ -4,7 +4,7 @@ Eduport is a single-device desktop workspace for master's and PhD research and a
 
 ## What works
 
-- Universities, labs, people, programs, applications, publications, projects, mail, documents, and notes. A person has one record and any number of role-bearing links to other records. Labs can link to several institutions. Add your own fields to a record type and use tags and links freely.
+- Universities, labs, people, programs, applications, publications, projects, mail, documents, and notes. A person has one record and any number of role-bearing links to other records. Labs can link to several institutions. Each type has relevant fields; program level and application status are required. Add optional or required fields, use tags and links, and drag record types to reorder the sidebar.
 - Local SQLite with transactional writes, foreign keys, full-text index, optimistic revisions, recoverable trash, and a consistent backup command.
 - Preview and import an old Eduport Markdown vault or an Eduport export. Import merges into the current database only if IDs and files do not conflict. The source folder is left untouched, and legacy originals and attachments are retained. Export writes readable Markdown, a schema/relation manifest, and managed files.
 - Assistant with local Ollama or cloud OpenRouter. Choose a provider and model in Settings. Choose the records for each request. Cloud requests require an explicit checkbox for each request. In controlled mode every suggested write waits for review; in delegated mode only the record types you allow may be changed directly. The assistant cannot delete records or send mail.
@@ -18,6 +18,8 @@ Requires a Tauri 2 desktop toolchain (Rust, Node.js, and the platform prerequisi
 npm ci
 npm run tauri dev
 ```
+
+For browser-based development, run `npm run dev` and open `http://127.0.0.1:1420/`. This starts a loopback-only Rust API alongside Vite. The browser and desktop app use the **same local SQLite database**, so records and sidebar order survive reloads. Native file dialogs and Gmail sign-in remain desktop-only.
 
 `npm run check`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml` verify the frontend and Rust core. `npm run tauri build` produces a desktop bundle.
 
