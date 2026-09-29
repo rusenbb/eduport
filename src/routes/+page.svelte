@@ -39,7 +39,7 @@
   let relationOpen = $state(false);
   let aiConfig = $state<AiConfig>({ provider: 'ollama', model: '', trust_mode: 'controlled', delegated_types: [] });
   let openrouterKey = $state('');
-  let keyConfigured = $state(false);
+  let keyConfigured = $state<boolean | null>(null);
   let assistantPrompt = $state('');
   let pendingActions = $state<AgentAction[]>([]);
   let allowCloud = $state(false);
@@ -143,7 +143,6 @@
       const savedOrder = await api.getSetting<string[]>('sidebar_order');
       if (Array.isArray(savedOrder)) sidebarOrder = savedOrder.filter((key): key is string => typeof key === 'string');
       aiConfig = await api.getAiConfig();
-      keyConfigured = await api.hasOpenRouterKey();
       gmailAccount = await api.getGmailAccount();
     } catch (cause) {
       error = message(cause);
@@ -519,6 +518,15 @@
     }
   }
 
+  async function checkOpenRouterKey() {
+    error = '';
+    try {
+      keyConfigured = await api.hasOpenRouterKey();
+    } catch (cause) {
+      error = message(cause);
+    }
+  }
+
   async function askAssistant() {
     error = '';
     assistantBusy = true;
@@ -883,7 +891,8 @@
               <div class="form-field wide"><span>Entity types with unrestricted writes (all others stay gated)</span><div class="delegated-types">{#each orderedTypes as type}<label><input type="checkbox" checked={aiConfig.delegated_types.includes(type.key)} onchange={() => aiConfig.delegated_types = aiConfig.delegated_types.includes(type.key) ? aiConfig.delegated_types.filter((key) => key !== type.key) : [...aiConfig.delegated_types, type.key]} />{type.label}</label>{/each}</div></div>
             {/if}
             {#if aiConfig.provider === 'openrouter'}
-              <label class="form-field wide"><span>OpenRouter API key {keyConfigured ? '(configured)' : ''}</span><input type="password" autocomplete="off" bind:value={openrouterKey} placeholder="Paste a key; it will not appear in exports" /></label>
+              <label class="form-field wide"><span>OpenRouter API key {keyConfigured === true ? '(configured)' : keyConfigured === false ? '(not configured)' : '(status not checked)'}</span><input type="password" autocomplete="off" bind:value={openrouterKey} placeholder="Paste a key; it will not appear in exports" /></label>
+              <button class="secondary-button" onclick={checkOpenRouterKey}>Check stored key</button>
               <button class="secondary-button" disabled={!openrouterKey.trim()} onclick={saveOpenRouterKey}>Save key</button>
             {/if}
             <button class="primary-button" onclick={saveAiConfig}>Save provider settings</button>
