@@ -5,10 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+mod chats;
 mod relations_schema;
 mod views;
+pub use chats::{ChatEvent, ChatMessage, ChatSession};
 pub use relations_schema::{RelationDefinition, RelationDefinitionInput};
-pub use views::{FilterRule, SortRule, TableView, TableViewInput, ViewConfig};
+pub use views::{FilterGroup, FilterRule, SortRule, TableView, TableViewInput, ViewConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentAction {
@@ -19,6 +21,9 @@ pub struct AgentAction {
     pub status: String,
     pub created_at: i64,
     pub error: Option<String>,
+    pub chat_message_id: Option<String>,
+    pub decision: Option<String>,
+    pub decided_at: Option<i64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -142,7 +147,7 @@ impl Db {
              PRAGMA synchronous = FULL;",
         )?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > 5 {
+        if version > 6 {
             return Err(DbError::Invalid(format!(
                 "database schema version {version} is newer than this app"
             )));
@@ -238,6 +243,9 @@ impl Db {
         if version < 5 {
             db.upgrade_schema_v5()?;
         }
+        if version < 6 {
+            db.upgrade_schema_v6()?;
+        }
         Ok(db)
     }
 
@@ -255,6 +263,53 @@ impl Db {
              );
              CREATE INDEX idx_agent_actions_status ON agent_actions(status, created_at DESC);
              PRAGMA user_version = 5;
+             COMMIT;",
+        )?;
+        Ok(())
+    }
+
+    fn upgrade_schema_v6(&mut self) -> Result<()> {
+        self.conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE chat_sessions (
+               id TEXT PRIMARY KEY,
+               title TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               archived_at INTEGER
+             );
+             CREATE INDEX idx_chat_sessions_updated ON chat_sessions(archived_at, updated_at DESC);
+             CREATE TABLE chat_messages (
+               id TEXT PRIMARY KEY,
+               session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+               sequence INTEGER NOT NULL,
+               reply_to TEXT REFERENCES chat_messages(id),
+               role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+               content TEXT NOT NULL DEFAULT '',
+               status TEXT NOT NULL CHECK(status IN ('running', 'completed', 'failed')),
+               provider TEXT,
+               model TEXT,
+               error TEXT,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               UNIQUE(session_id, sequence)
+             );
+             CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, sequence);
+             CREATE TABLE chat_events (
+               id TEXT PRIMARY KEY,
+               assistant_message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+               ordinal INTEGER NOT NULL,
+               tool TEXT NOT NULL,
+               arguments_json TEXT NOT NULL CHECK(json_valid(arguments_json)),
+               result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+               action_id TEXT REFERENCES agent_actions(id),
+               created_at INTEGER NOT NULL,
+               UNIQUE(assistant_message_id, ordinal)
+             );
+             ALTER TABLE agent_actions ADD COLUMN chat_message_id TEXT REFERENCES chat_messages(id);
+             ALTER TABLE agent_actions ADD COLUMN decision TEXT CHECK(decision IN ('auto', 'approved', 'rejected'));
+             ALTER TABLE agent_actions ADD COLUMN decided_at INTEGER;
+             PRAGMA user_version = 6;
              COMMIT;",
         )?;
         Ok(())
@@ -989,12 +1044,22 @@ impl Db {
         arguments: &Value,
         target_types: &[String],
     ) -> Result<AgentAction> {
+        self.queue_chat_agent_action(tool, arguments, target_types, None)
+    }
+
+    pub fn queue_chat_agent_action(
+        &mut self,
+        tool: &str,
+        arguments: &Value,
+        target_types: &[String],
+        chat_message_id: Option<&str>,
+    ) -> Result<AgentAction> {
         let id = Uuid::new_v4().to_string();
         let now = unix_seconds();
         self.conn.execute(
-            "INSERT INTO agent_actions(id, tool, arguments_json, target_types_json, status, created_at)
-             VALUES(?1, ?2, ?3, ?4, 'pending', ?5)",
-            params![id, tool, arguments.to_string(), serde_json::to_string(target_types).unwrap(), now],
+            "INSERT INTO agent_actions(id, tool, arguments_json, target_types_json, status, created_at, chat_message_id)
+             VALUES(?1, ?2, ?3, ?4, 'pending', ?5, ?6)",
+            params![id, tool, arguments.to_string(), serde_json::to_string(target_types).unwrap(), now, chat_message_id],
         )?;
         self.get_agent_action(&id)?.ok_or(DbError::NotFound)
     }
@@ -1002,7 +1067,7 @@ impl Db {
     pub fn get_agent_action(&self, id: &str) -> Result<Option<AgentAction>> {
         self.conn
             .query_row(
-                "SELECT id, tool, arguments_json, target_types_json, status, created_at, error
+                "SELECT id, tool, arguments_json, target_types_json, status, created_at, error, chat_message_id, decision, decided_at
              FROM agent_actions WHERE id = ?1",
                 [id],
                 read_agent_action,
@@ -1013,7 +1078,7 @@ impl Db {
 
     pub fn list_agent_actions(&self) -> Result<Vec<AgentAction>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tool, arguments_json, target_types_json, status, created_at, error
+            "SELECT id, tool, arguments_json, target_types_json, status, created_at, error, chat_message_id, decision, decided_at
              FROM agent_actions WHERE status IN ('pending', 'applying')
              ORDER BY created_at DESC, id DESC",
         )?;
@@ -1029,9 +1094,24 @@ impl Db {
         to: &str,
         error: Option<&str>,
     ) -> Result<()> {
+        self.transition_agent_action_with_decision(id, from, to, error, None)
+    }
+
+    pub fn transition_agent_action_with_decision(
+        &mut self,
+        id: &str,
+        from: &str,
+        to: &str,
+        error: Option<&str>,
+        decision: Option<&str>,
+    ) -> Result<()> {
         let changed = self.conn.execute(
-            "UPDATE agent_actions SET status = ?3, error = ?4 WHERE id = ?1 AND status = ?2",
-            params![id, from, to, error],
+            "UPDATE agent_actions
+             SET status = ?3, error = ?4,
+                 decision = COALESCE(?5, decision),
+                 decided_at = CASE WHEN ?5 IS NOT NULL THEN ?6 ELSE decided_at END
+             WHERE id = ?1 AND status = ?2",
+            params![id, from, to, error, decision, unix_seconds()],
         )?;
         if changed != 1 {
             return Err(DbError::Conflict);
@@ -1075,6 +1155,9 @@ fn read_agent_action(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentAction> {
         status: row.get(4)?,
         created_at: row.get(5)?,
         error: row.get(6)?,
+        chat_message_id: row.get(7)?,
+        decision: row.get(8)?,
+        decided_at: row.get(9)?,
     })
 }
 
@@ -1533,7 +1616,10 @@ mod tests {
         ).unwrap();
         db.conn
             .execute_batch(
-                "DROP TABLE agent_actions;
+                "DROP TABLE chat_events;
+             DROP TABLE chat_messages;
+             DROP TABLE chat_sessions;
+             DROP TABLE agent_actions;
              ALTER TABLE relations DROP COLUMN definition_id;
              DROP TABLE relation_definitions;
              DROP TABLE table_views;",
@@ -1603,15 +1689,49 @@ mod tests {
                         operator: "greater_than".into(),
                         value: "1000".into(),
                     }],
+                    filter_tree: None,
                     sorts: vec![SortRule {
                         field: "amount".into(),
                         direction: "desc".into(),
                     }],
                     group_by: None,
+                    column_widths: Default::default(),
                 },
             })
             .unwrap();
         assert_eq!(db.list_views("scholarship").unwrap().len(), 2);
+        let mut default = db.list_views("scholarship").unwrap()[0].clone();
+        default.config.filter_tree = Some(FilterGroup {
+            mode: "or".into(),
+            rules: vec![FilterRule {
+                field: "title".into(),
+                operator: "contains".into(),
+                value: "Award".into(),
+            }],
+            groups: vec![FilterGroup {
+                mode: "and".into(),
+                rules: vec![FilterRule {
+                    field: "amount".into(),
+                    operator: "greater_than".into(),
+                    value: "1000".into(),
+                }],
+                groups: vec![],
+            }],
+        });
+        db.put_view(TableViewInput {
+            id: Some(default.id.clone()),
+            type_key: "scholarship".into(),
+            name: default.name,
+            config: default.config,
+        })
+        .unwrap();
+        assert!(
+            db.list_views("scholarship").unwrap()[0]
+                .config
+                .filter_tree
+                .is_some()
+        );
+        assert!(db.delete_view("default:scholarship").is_err());
         assert!(
             db.put_view(TableViewInput {
                 id: Some(saved.id),
@@ -1620,8 +1740,10 @@ mod tests {
                 config: ViewConfig {
                     columns: vec!["missing".into()],
                     filters: vec![],
+                    filter_tree: None,
                     sorts: vec![],
-                    group_by: None
+                    group_by: None,
+                    column_widths: Default::default(),
                 }
             })
             .is_err()

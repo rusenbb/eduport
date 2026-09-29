@@ -697,11 +697,13 @@ mod tests {
                         operator: "equals".into(),
                         value: "masters".into(),
                     }],
+                    filter_tree: None,
                     sorts: vec![SortRule {
                         field: "title".into(),
                         direction: "asc".into(),
                     }],
                     group_by: Some("level".into()),
+                    column_widths: Default::default(),
                 },
             })
             .unwrap();

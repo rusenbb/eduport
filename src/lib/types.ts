@@ -65,8 +65,9 @@ export interface RelationDefinition {
 export type RelationDefinitionInput = Omit<RelationDefinition, 'id' | 'built_in'> & { id?: string | null };
 
 export interface FilterRule { field: string; operator: 'contains' | 'equals' | 'not_equals' | 'is_empty' | 'greater_than' | 'less_than'; value: string; }
+export interface FilterGroup { mode: 'and' | 'or'; rules: FilterRule[]; groups: FilterGroup[]; }
 export interface SortRule { field: string; direction: 'asc' | 'desc'; }
-export interface ViewConfig { columns: string[]; filters: FilterRule[]; sorts: SortRule[]; group_by: string | null; }
+export interface ViewConfig { columns: string[]; filters: FilterRule[]; filter_tree?: FilterGroup | null; sorts: SortRule[]; group_by: string | null; column_widths?: Record<string, number>; }
 export interface TableView { id: string; type_key: string; name: string; config: ViewConfig; is_default: boolean; }
 export type TableViewInput = Omit<TableView, 'id' | 'is_default'> & { id?: string | null };
 
@@ -94,11 +95,50 @@ export interface AgentAction {
   status: 'pending' | 'applying' | 'applied' | 'rejected';
   created_at: number;
   error: string | null;
+  chat_message_id: string | null;
+  decision: 'auto' | 'approved' | 'rejected' | null;
+  decided_at: number | null;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  archived_at: number | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  session_id: string;
+  sequence: number;
+  reply_to: string | null;
+  role: 'user' | 'assistant';
+  content: string;
+  status: 'running' | 'completed' | 'failed';
+  provider: string | null;
+  model: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatEvent {
+  id: string;
+  assistant_message_id: string;
+  ordinal: number;
+  tool: string;
+  arguments: Record<string, unknown>;
+  result: unknown;
+  action_id: string | null;
+  created_at: number;
 }
 
 export interface ActionOutcome { action: AgentAction; result: unknown | null; }
 
 export interface AiResult {
+  session_id: string;
+  assistant_message_id: string;
   answer: string;
   actions: ActionOutcome[];
   provider: string;

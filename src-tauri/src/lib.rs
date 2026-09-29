@@ -9,8 +9,8 @@ mod portable;
 use std::sync::Mutex;
 
 use db::{
-    Db, Record, RecordInput, RecordType, Relation, RelationDefinition, RelationDefinitionInput,
-    RelationInput, TableView, TableViewInput,
+    ChatEvent, ChatMessage, ChatSession, Db, Record, RecordInput, RecordType, Relation,
+    RelationDefinition, RelationDefinitionInput, RelationInput, TableView, TableViewInput,
 };
 use serde_json::Value;
 use tauri::Manager;
@@ -259,6 +259,61 @@ fn has_openrouter_key() -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn create_chat_session(state: tauri::State<'_, DbState>) -> Result<ChatSession, String> {
+    with_db(state, |db| db.create_chat_session())
+}
+
+#[tauri::command]
+fn list_chat_sessions(
+    state: tauri::State<'_, DbState>,
+    archived: bool,
+) -> Result<Vec<ChatSession>, String> {
+    with_db(state, |db| db.list_chat_sessions(archived))
+}
+
+#[tauri::command]
+fn rename_chat_session(
+    state: tauri::State<'_, DbState>,
+    id: String,
+    title: String,
+) -> Result<ChatSession, String> {
+    with_db(state, |db| db.rename_chat_session(&id, &title))
+}
+
+#[tauri::command]
+fn set_chat_archived(
+    state: tauri::State<'_, DbState>,
+    id: String,
+    archived: bool,
+) -> Result<ChatSession, String> {
+    with_db(state, |db| db.set_chat_archived(&id, archived))
+}
+
+#[tauri::command]
+fn list_chat_messages(
+    state: tauri::State<'_, DbState>,
+    session_id: String,
+) -> Result<Vec<ChatMessage>, String> {
+    with_db(state, |db| db.list_chat_messages(&session_id))
+}
+
+#[tauri::command]
+fn list_chat_events(
+    state: tauri::State<'_, DbState>,
+    session_id: String,
+) -> Result<Vec<ChatEvent>, String> {
+    with_db(state, |db| db.list_chat_events(&session_id))
+}
+
+#[tauri::command]
+fn list_chat_actions(
+    state: tauri::State<'_, DbState>,
+    session_id: String,
+) -> Result<Vec<db::AgentAction>, String> {
+    with_db(state, |db| db.list_chat_actions(&session_id))
+}
+
+#[tauri::command]
 async fn ask_assistant(
     state: tauri::State<'_, DbState>,
     input: agent::AskInput,
@@ -451,6 +506,13 @@ pub fn run() {
             put_ai_config,
             set_openrouter_key,
             has_openrouter_key,
+            create_chat_session,
+            list_chat_sessions,
+            rename_chat_session,
+            set_chat_archived,
+            list_chat_messages,
+            list_chat_events,
+            list_chat_actions,
             ask_assistant,
             list_agent_actions,
             approve_agent_action,

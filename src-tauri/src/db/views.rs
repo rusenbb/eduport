@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -21,14 +21,27 @@ pub struct SortRule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FilterGroup {
+    pub mode: String,
+    #[serde(default)]
+    pub rules: Vec<FilterRule>,
+    #[serde(default)]
+    pub groups: Vec<FilterGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ViewConfig {
     pub columns: Vec<String>,
     #[serde(default)]
     pub filters: Vec<FilterRule>,
     #[serde(default)]
+    pub filter_tree: Option<FilterGroup>,
+    #[serde(default)]
     pub sorts: Vec<SortRule>,
     #[serde(default)]
     pub group_by: Option<String>,
+    #[serde(default)]
+    pub column_widths: HashMap<String, u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -67,8 +80,10 @@ pub fn default_view(kind: &RecordType, definitions: &[RelationDefinition]) -> Ta
         config: ViewConfig {
             columns,
             filters: Vec::new(),
+            filter_tree: None,
             sorts: Vec::new(),
             group_by: None,
+            column_widths: HashMap::new(),
         },
         is_default: true,
     }
@@ -115,6 +130,22 @@ pub(super) fn validate_view(
             "a view supports at most eight filters and eight sorts".into(),
         ));
     }
+    if config.filter_tree.is_some() && !config.filters.is_empty() {
+        return Err(DbError::Invalid(
+            "use either legacy filters or a filter group".into(),
+        ));
+    }
+    if let Some(group) = &config.filter_tree {
+        let mut count = 0;
+        validate_group(group, &allowed, 1, &mut count)?;
+    }
+    if config
+        .column_widths
+        .iter()
+        .any(|(field, width)| !allowed.contains(field) || !(80..=600).contains(width))
+    {
+        return Err(DbError::Invalid("view column width is invalid".into()));
+    }
     for filter in &config.filters {
         if !allowed.contains(filter.field.as_str())
             || !matches!(
@@ -143,6 +174,41 @@ pub(super) fn validate_view(
     Ok(())
 }
 
+fn validate_group(
+    group: &FilterGroup,
+    allowed: &HashSet<String>,
+    depth: usize,
+    count: &mut usize,
+) -> Result<()> {
+    if depth > 3 || !matches!(group.mode.as_str(), "and" | "or") {
+        return Err(DbError::Invalid("filter group is invalid".into()));
+    }
+    if depth > 1 && group.rules.is_empty() && group.groups.is_empty() {
+        return Err(DbError::Invalid(
+            "nested filter groups need a condition".into(),
+        ));
+    }
+    *count += group.rules.len();
+    if *count > 20 || group.groups.len() > 8 {
+        return Err(DbError::Invalid("too many filter conditions".into()));
+    }
+    for rule in &group.rules {
+        if !allowed.contains(&rule.field)
+            || !matches!(
+                rule.operator.as_str(),
+                "contains" | "equals" | "not_equals" | "is_empty" | "greater_than" | "less_than"
+            )
+            || rule.value.len() > 250
+        {
+            return Err(DbError::Invalid("view filter is invalid".into()));
+        }
+    }
+    for child in &group.groups {
+        validate_group(child, allowed, depth + 1, count)?;
+    }
+    Ok(())
+}
+
 impl Db {
     pub fn list_views(&self, type_key: &str) -> Result<Vec<TableView>> {
         let kind = self
@@ -166,7 +232,14 @@ impl Db {
                 is_default: false,
             })
         })?;
-        views.extend(saved.collect::<rusqlite::Result<Vec<_>>>()?);
+        for mut view in saved.collect::<rusqlite::Result<Vec<_>>>()? {
+            if view.id == views[0].id {
+                view.is_default = true;
+                views[0] = view;
+            } else {
+                views.push(view);
+            }
+        }
         Ok(views)
     }
 
@@ -198,6 +271,24 @@ impl Db {
         validate_view(&kind, &definitions, &input.name, &input.config)?;
         let id = match input.id {
             Some(id) => {
+                if id == format!("default:{}", kind.key) {
+                    if input.name != "Table" {
+                        return Err(DbError::Invalid(
+                            "the default table view is named Table".into(),
+                        ));
+                    }
+                    self.conn.execute(
+                        "INSERT INTO table_views(id, type_key, name, config_json)
+                         VALUES(?1, ?2, 'Table', ?3)
+                         ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json",
+                        params![id, kind.key, serde_json::to_string(&input.config).unwrap()],
+                    )?;
+                    return self
+                        .list_views(&kind.key)?
+                        .into_iter()
+                        .next()
+                        .ok_or(DbError::NotFound);
+                }
                 let existing_type: Option<String> = self
                     .conn
                     .query_row(
@@ -220,6 +311,11 @@ impl Db {
                 id
             }
             None => {
+                if input.name.trim() == "Table" {
+                    return Err(DbError::Invalid(
+                        "Table is reserved for the default view".into(),
+                    ));
+                }
                 let id = Uuid::new_v4().to_string();
                 self.conn.execute(
                     "INSERT INTO table_views(id, type_key, name, config_json) VALUES(?1, ?2, ?3, ?4)",
@@ -235,6 +331,11 @@ impl Db {
     }
 
     pub fn delete_view(&mut self, id: &str) -> Result<()> {
+        if id.starts_with("default:") {
+            return Err(DbError::Invalid(
+                "the default table view cannot be deleted".into(),
+            ));
+        }
         if self
             .conn
             .execute("DELETE FROM table_views WHERE id = ?1", [id])?

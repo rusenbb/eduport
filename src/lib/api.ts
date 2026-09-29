@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AiConfig, AiResult, AgentAction, ActionOutcome, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput } from './types';
+import type { AiConfig, AiResult, AgentAction, ActionOutcome, ChatEvent, ChatMessage, ChatSession, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput } from './types';
 
 export const inDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -58,7 +58,14 @@ export const api = {
     invokeApp<void>('set_openrouter_key', { key }),
   hasOpenRouterKey: () =>
     invokeApp<boolean>('has_openrouter_key'),
-  askAssistant: (input: { question: string; allow_cloud: boolean }) =>
+  createChatSession: () => invokeApp<ChatSession>('create_chat_session'),
+  listChatSessions: (archived = false) => invokeApp<ChatSession[]>('list_chat_sessions', { archived }),
+  renameChatSession: (id: string, title: string) => invokeApp<ChatSession>('rename_chat_session', { id, title }),
+  setChatArchived: (id: string, archived: boolean) => invokeApp<ChatSession>('set_chat_archived', { id, archived }),
+  listChatMessages: (sessionId: string) => invokeApp<ChatMessage[]>('list_chat_messages', { sessionId }),
+  listChatEvents: (sessionId: string) => invokeApp<ChatEvent[]>('list_chat_events', { sessionId }),
+  listChatActions: (sessionId: string) => invokeApp<AgentAction[]>('list_chat_actions', { sessionId }),
+  askAssistant: (input: { session_id: string | null; question: string; allow_cloud: boolean }) =>
     invokeApp<AiResult>('ask_assistant', { input }),
   listAgentActions: () => invokeApp<AgentAction[]>('list_agent_actions'),
   approveAgentAction: (id: string) => invokeApp<ActionOutcome>('approve_agent_action', { id }),

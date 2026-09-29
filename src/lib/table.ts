@@ -1,4 +1,4 @@
-import type { Entry, FilterRule, ViewConfig } from './types';
+import type { Entry, FilterGroup, FilterRule, ViewConfig } from './types';
 
 export type RelationIndex = Record<string, Record<string, string[]>>;
 
@@ -41,10 +41,19 @@ function matches(entry: Entry, rule: FilterRule, relations: RelationIndex): bool
   return rule.operator === 'greater_than' ? comparison > 0 : comparison < 0;
 }
 
+function matchesGroup(entry: Entry, group: FilterGroup, relations: RelationIndex): boolean {
+  const results = [
+    ...group.rules.map((rule) => matches(entry, rule, relations)),
+    ...group.groups.map((child) => matchesGroup(entry, child, relations))
+  ];
+  if (!results.length) return true;
+  return group.mode === 'or' ? results.some(Boolean) : results.every(Boolean);
+}
+
 export function applyTableView(records: Entry[], config: ViewConfig, search: string, relations: RelationIndex = {}): Array<{ key: string; rows: Entry[] }> {
   const query = search.trim().toLowerCase();
   const filtered = records.filter((entry) =>
-    config.filters.every((rule) => matches(entry, rule, relations)) &&
+    (config.filter_tree ? matchesGroup(entry, config.filter_tree, relations) : config.filters.every((rule) => matches(entry, rule, relations))) &&
     (!query || (entry.title + ' ' + entry.body + ' ' + JSON.stringify(entry.values)).toLowerCase().includes(query))
   );
   filtered.sort((a, b) => {

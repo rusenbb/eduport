@@ -183,6 +183,41 @@ fn dispatch(db: &mut Db, command: &str, args: &Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
         "has_openrouter_key" => as_value(ai::has_openrouter_key()?),
+        "create_chat_session" => as_value(db.create_chat_session().map_err(|e| e.to_string())?),
+        "list_chat_sessions" => as_value(
+            db.list_chat_sessions(
+                args.get("archived")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )
+            .map_err(|e| e.to_string())?,
+        ),
+        "rename_chat_session" => as_value(
+            db.rename_chat_session(
+                &argument::<String>(args, "id")?,
+                &argument::<String>(args, "title")?,
+            )
+            .map_err(|e| e.to_string())?,
+        ),
+        "set_chat_archived" => as_value(
+            db.set_chat_archived(
+                &argument::<String>(args, "id")?,
+                argument::<bool>(args, "archived")?,
+            )
+            .map_err(|e| e.to_string())?,
+        ),
+        "list_chat_messages" => as_value(
+            db.list_chat_messages(&argument::<String>(args, "sessionId")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "list_chat_events" => as_value(
+            db.list_chat_events(&argument::<String>(args, "sessionId")?)
+                .map_err(|e| e.to_string())?,
+        ),
+        "list_chat_actions" => as_value(
+            db.list_chat_actions(&argument::<String>(args, "sessionId")?)
+                .map_err(|e| e.to_string())?,
+        ),
         "list_agent_actions" => as_value(db.list_agent_actions().map_err(|e| e.to_string())?),
         "approve_agent_action" => as_value(agent::approve(db, &argument::<String>(args, "id")?)?),
         "reject_agent_action" => as_value(agent::reject(db, &argument::<String>(args, "id")?)?),

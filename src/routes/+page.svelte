@@ -2,14 +2,15 @@
   import {
     ArrowLeft, ArrowRight, BookOpen, BookText, Building2, Check, ChevronRight, CircleHelp,
     Clock3, Download, FileText, FlaskConical, FolderKanban, GraduationCap, GripVertical,
-    Home, Layers3, Link2, Mail, Plus, Search, Settings2, SlidersHorizontal, Sparkles, StickyNote,
+    Home, Layers3, Link2, Mail, Plus, Search, Settings2, Sparkles, StickyNote,
     Trash2, UserRound, X
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import { api, inDesktop } from '$lib/api';
+  import AssistantWorkspace from '$lib/AssistantWorkspace.svelte';
   import { applyTableView, cellValue, displayValue } from '$lib/table';
   import type { RelationIndex } from '$lib/table';
-  import type { AiConfig, AiResult, AgentAction, Entry, EntryInput, FieldDef, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput, ViewConfig } from '$lib/types';
+  import type { AiConfig, Entry, EntryInput, FieldDef, FilterGroup, FilterRule, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput, ViewConfig } from '$lib/types';
 
   let types = $state<RecordType[]>([]);
   let entries = $state<Entry[]>([]);
@@ -19,6 +20,11 @@
   let views = $state<TableView[]>([]);
   let currentViewId = $state('');
   let viewDraft = $state<TableViewInput | null>(null);
+  let viewPanel = $state<'filter' | 'sort' | 'group' | 'properties' | null>(null);
+  let viewPanelDraft = $state<ViewConfig | null>(null);
+  let draggedColumn = $state<string | null>(null);
+  let editingCell = $state<{ id: string; field: string } | null>(null);
+  let cellDraft = $state('');
   let newTypeOpen = $state(false);
   let newTypeLabel = $state('');
   let newTypeKey = $state('');
@@ -41,10 +47,6 @@
   let openrouterKey = $state('');
   let keyConfigured = $state<boolean | null>(null);
   let assistantPrompt = $state('');
-  let pendingActions = $state<AgentAction[]>([]);
-  let allowCloud = $state(false);
-  let assistantBusy = $state(false);
-  let assistantResult = $state<AiResult | null>(null);
   let gmailAccount = $state<GmailAccount | null>(null);
   let gmailClientId = $state('');
   let gmailQuery = $state('');
@@ -94,8 +96,8 @@
   const chosenDefinition = $derived(definitions.find((item) => item.id === relationDraft.definition_id) ?? null);
   const relationTargetType = $derived(selected && chosenDefinition ? (chosenDefinition.source_type === selected.type_key ? chosenDefinition.target_type : chosenDefinition.source_type) : null);
   const viewKind = $derived(types.find((kind) => kind.key === viewDraft?.type_key) ?? null);
-  const viewFields = $derived(viewKind ? ['title', 'body', ...viewKind.fields.map((field) => field.key),
-    ...definitions.filter((definition) => definition.source_type === viewKind.key || definition.target_type === viewKind.key)
+  const activeViewFields = $derived(activeType ? ['title', 'body', ...activeType.fields.map((field) => field.key),
+    ...definitions.filter((definition) => definition.source_type === activeType.key || definition.target_type === activeType.key)
       .map((definition) => `relation:${definition.id}`), 'tags', 'updated_at'] : []);
   const orderedTypes = $derived([...types].sort((a, b) => {
     const aIndex = sidebarOrder.indexOf(a.key);
@@ -139,7 +141,7 @@
     loading = true;
     error = '';
     try {
-      [types, entries, definitions, allRelations, pendingActions] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations(), api.listAgentActions()]);
+      await refreshCoreData();
       const savedOrder = await api.getSetting<string[]>('sidebar_order');
       if (Array.isArray(savedOrder)) sidebarOrder = savedOrder.filter((key): key is string => typeof key === 'string');
       aiConfig = await api.getAiConfig();
@@ -149,6 +151,13 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function refreshCoreData() {
+    [types, entries, definitions, allRelations] = await Promise.all([
+      api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations()
+    ]);
+    if (activeType) await loadViews(activeType.key);
   }
 
   function message(cause: unknown): string {
@@ -164,6 +173,8 @@
     active = next;
     selectedId = null;
     listQuery = '';
+    viewPanel = null;
+    editingCell = null;
     if (types.some((type) => type.key === next)) void loadViews(next);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
@@ -404,7 +415,142 @@
 
   function cloneViewConfig(config: ViewConfig): ViewConfig {
     return { columns: [...config.columns], filters: config.filters.map((rule) => ({ ...rule })),
-      sorts: config.sorts.map((rule) => ({ ...rule })), group_by: config.group_by };
+      filter_tree: config.filter_tree ? JSON.parse(JSON.stringify(config.filter_tree)) as FilterGroup : null,
+      sorts: config.sorts.map((rule) => ({ ...rule })), group_by: config.group_by,
+      column_widths: { ...(config.column_widths ?? {}) } };
+  }
+
+  function openViewPanel(panel: 'filter' | 'sort' | 'group' | 'properties') {
+    if (!currentView) return;
+    if (viewPanel === panel) { viewPanel = null; viewPanelDraft = null; return; }
+    if (!viewPanelDraft || !viewPanel) {
+      viewPanelDraft = cloneViewConfig(currentView.config);
+      if (!viewPanelDraft.filter_tree) {
+        viewPanelDraft.filter_tree = { mode: 'and', rules: [...viewPanelDraft.filters], groups: [] };
+        viewPanelDraft.filters = [];
+      }
+    }
+    viewPanel = panel;
+  }
+
+  function filterTree(): FilterGroup | null { return viewPanelDraft?.filter_tree ?? null; }
+  function newFilterRule(): FilterRule { return { field: 'title', operator: 'contains', value: '' }; }
+  function addFilterGroup() { filterTree()?.groups.push({ mode: 'or', rules: [newFilterRule()], groups: [] }); }
+
+  async function saveViewPanel() {
+    if (!activeType || !currentView || !viewPanelDraft) return;
+    try {
+      const saved = await api.putView({ id: currentView.id, type_key: activeType.key,
+        name: currentView.name, config: cloneViewConfig(viewPanelDraft) });
+      views = views.map((view) => view.id === saved.id ? saved : view);
+      viewPanel = null;
+      viewPanelDraft = null;
+    } catch (cause) { error = message(cause); }
+  }
+
+  async function reorderColumn(source: string, target: string) {
+    if (!activeType || !currentView || source === target || source === 'title' || target === 'title') return;
+    const config = cloneViewConfig(currentView.config);
+    const from = config.columns.indexOf(source);
+    const to = config.columns.indexOf(target);
+    if (from < 0 || to < 0) return;
+    config.columns.splice(from, 1);
+    config.columns.splice(to, 0, source);
+    try {
+      const saved = await api.putView({ id: currentView.id, type_key: activeType.key, name: currentView.name, config });
+      views = views.map((view) => view.id === saved.id ? saved : view);
+    } catch (cause) { error = message(cause); }
+  }
+
+  function startColumnResize(event: PointerEvent, column: string) {
+    if (!activeType || !currentView) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const header = (event.currentTarget as HTMLElement).closest('th');
+    if (!header) return;
+    const startX = event.clientX;
+    const startWidth = header.getBoundingClientRect().width;
+    let width = startWidth;
+    const move = (pointer: PointerEvent) => {
+      width = Math.max(80, Math.min(600, startWidth + pointer.clientX - startX));
+      header.style.width = width + 'px';
+    };
+    const finish = async () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      await saveColumnWidth(column, width);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish, { once: true });
+  }
+
+  async function saveColumnWidth(column: string, width: number) {
+    if (!activeType || !currentView) return;
+    const config = cloneViewConfig(currentView.config);
+    config.column_widths ??= {};
+    config.column_widths[column] = Math.round(Math.max(80, Math.min(600, width)));
+    try {
+      const saved = await api.putView({ id: currentView.id, type_key: activeType.key, name: currentView.name, config });
+      views = views.map((view) => view.id === saved.id ? saved : view);
+    } catch (cause) { error = message(cause); }
+  }
+
+  function resizeColumnWithKeyboard(event: KeyboardEvent, column: string) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const width = (event.currentTarget as HTMLElement).closest('th')?.getBoundingClientRect().width ?? 140;
+    void saveColumnWidth(column, width + (event.key === 'ArrowRight' ? 20 : -20));
+  }
+
+  function startCellEdit(entry: Entry, field: string) {
+    if (field.startsWith('relation:')) { startRelation(entry); return; }
+    if (field === 'updated_at') return;
+    editingCell = { id: entry.id, field };
+    const value = cellValue(entry, field, relationIndex);
+    cellDraft = Array.isArray(value) ? value.join(', ') : value === null || value === undefined ? '' : String(value);
+  }
+
+  function focusCell(node: HTMLElement) {
+    queueMicrotask(() => {
+      node.focus();
+      if (node instanceof HTMLInputElement) node.select();
+    });
+  }
+
+  function fieldKind(field: string): FieldDef['kind'] | null {
+    return activeType?.fields.find((item) => item.key === field)?.kind ?? null;
+  }
+
+  function fieldOptions(field: string): string[] {
+    return activeType?.fields.find((item) => item.key === field)?.options ?? [];
+  }
+
+  async function saveCell() {
+    const target = editingCell;
+    if (!target) return;
+    editingCell = null;
+    const entry = entries.find((item) => item.id === target.id);
+    if (!entry) return;
+    const input: EntryInput = { id: entry.id, type_key: entry.type_key, title: entry.title,
+      body: entry.body, values: { ...entry.values }, tags: [...entry.tags], expected_revision: entry.revision };
+    const value = cellDraft.trim();
+    if (target.field === 'title') input.title = value;
+    else if (target.field === 'body') input.body = cellDraft;
+    else if (target.field === 'tags') input.tags = value.split(',').map((tag) => tag.trim()).filter(Boolean);
+    else {
+      const field = activeType?.fields.find((item) => item.key === target.field);
+      if (!field) return;
+      if (!value) delete input.values[target.field];
+      else input.values[target.field] = field.kind === 'number' ? Number(value) : field.kind === 'boolean' ? value === 'true' : value;
+    }
+    try {
+      const saved = await api.putRecord(input);
+      entries = entries.map((item) => item.id === saved.id ? saved : item);
+    } catch (cause) {
+      error = message(cause);
+      const fresh = await api.getRecord(entry.id).catch(() => null);
+      if (fresh) entries = entries.map((item) => item.id === fresh.id ? fresh : item);
+    }
   }
 
   function startViewEditor(view?: TableView) {
@@ -436,13 +582,6 @@
       viewDraft = null;
       notify('View deleted');
     } catch (cause) { error = message(cause); }
-  }
-
-  function toggleViewColumn(column: string) {
-    if (!viewDraft || column === 'title') return;
-    viewDraft.config.columns = viewDraft.config.columns.includes(column)
-      ? viewDraft.config.columns.filter((field) => field !== column)
-      : [...viewDraft.config.columns, column];
   }
 
   function fieldLabel(type: RecordType, field: string): string {
@@ -525,48 +664,6 @@
     } catch (cause) {
       error = message(cause);
     }
-  }
-
-  async function askAssistant() {
-    error = '';
-    assistantBusy = true;
-    try {
-      assistantResult = await api.askAssistant({
-        question: assistantPrompt,
-        allow_cloud: allowCloud
-      });
-      if (assistantResult.actions.some((item) => item.action.status === 'applied')) {
-        [types, entries, definitions, allRelations] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations()]);
-      }
-      pendingActions = await api.listAgentActions();
-    } catch (cause) {
-      error = message(cause);
-    } finally {
-      assistantBusy = false;
-    }
-  }
-
-  async function approveAction(action: AgentAction) {
-    if (action.status !== 'pending') return;
-    if (!inDesktop && !await confirmAction(`Apply AI action ${action.tool}? Review its arguments first.`)) return;
-    error = '';
-    try {
-      const outcome = await api.approveAgentAction(action.id);
-      if (assistantResult) assistantResult.actions = assistantResult.actions.map((item) => item.action.id === action.id ? outcome : item);
-      [types, entries, definitions, allRelations, pendingActions] = await Promise.all([api.listTypes(), api.listRecords(undefined, true), api.listRelationDefinitions(), api.listAllRelations(), api.listAgentActions()]);
-      if (activeType) void loadViews(activeType.key);
-      notify(outcome.action.status === 'applied' ? 'AI action applied' : outcome.action.error ?? 'AI action failed');
-    } catch (cause) {
-      error = message(cause);
-    }
-  }
-
-  async function rejectAction(action: AgentAction) {
-    try {
-      await api.rejectAgentAction(action.id);
-      pendingActions = await api.listAgentActions();
-      notify('AI action rejected');
-    } catch (cause) { error = message(cause); }
   }
 
   async function connectGmail() {
@@ -812,29 +909,7 @@
           </div>
         {/if}
       {:else if !loading && active === 'assistant'}
-        <div class="page-head"><div><div class="section-kicker"><Sparkles size={14} /> Native AI</div><h1>Research assistant</h1><p>The agent can inspect every entity type through bounded tools. Writes follow your per-type permissions.</p></div><button class="secondary-button" onclick={() => navigate('settings')}><Settings2 size={14} /> Provider settings</button></div>
-        <div class="assistant-layout">
-          <section class="assistant-card">
-            <div class="assistant-provider"><span class="record-type"><span class="type-dot"></span>{aiConfig.provider === 'ollama' ? 'Ollama · local' : 'OpenRouter · cloud'}</span><span class="muted">{aiConfig.model || 'Choose a model in Settings'} · {aiConfig.trust_mode} mode</span></div>
-            <label class="form-field wide"><span>What would you like to work on?</span><textarea bind:value={assistantPrompt} placeholder="Compare programs, find a contact, or ask the agent to update records."></textarea></label>
-            {#if aiConfig.provider === 'openrouter'}
-              <label class="cloud-consent"><input type="checkbox" bind:checked={allowCloud} /> For this request, allow the agent to send any records or imported files it reads to OpenRouter.</label>
-            {/if}
-            <button class="primary-button" disabled={assistantBusy || !assistantPrompt.trim() || !aiConfig.model || (aiConfig.provider === 'openrouter' && !allowCloud)} onclick={askAssistant}><Sparkles size={15} /> {assistantBusy ? 'Thinking…' : 'Ask assistant'}</button>
-            {#if error}<div class="error-box" role="alert">{error}</div>{/if}
-            {#if assistantResult}
-              <div class="assistant-answer"><div class="section-kicker">Response</div><p>{assistantResult.answer}</p><span class="muted" style="font-size:10px">{assistantResult.provider} · {assistantResult.model} · {assistantResult.read_calls} reads · {assistantResult.write_calls} writes</span></div>
-              {#each assistantResult.actions as outcome}<div class="suggestion-card"><div class="section-kicker">{outcome.action.status} · {outcome.action.tool.replaceAll('_', ' ')}</div><pre>{JSON.stringify(outcome.action.arguments, null, 2)}</pre>{#if outcome.action.error}<div class="error-box">{outcome.action.error}</div>{/if}</div>{/each}
-            {/if}
-          </section>
-          <aside class="assistant-context">
-            <div class="section-kicker">Database access</div><h3>{liveEntries.length} records available</h3><p>The agent reads through paginated tools. It cannot send mail or permanently delete records.</p>
-            <div class="permission-summary"><strong>Unrestricted writes</strong><span>{aiConfig.trust_mode === 'delegated' && aiConfig.delegated_types.length ? aiConfig.delegated_types.map(typeLabel).join(', ') : 'None'}</span><small>All other entity types require approval.</small></div>
-            <div class="section-heading"><h3>Pending approval</h3><span>{pendingActions.length}</span></div>
-            {#each pendingActions as action (action.id)}<div class="pending-action"><strong>{action.tool.replaceAll('_', ' ')}</strong><small>{action.target_types.map(typeLabel).join(', ') || 'New entity type'} · {action.status}</small><pre>{JSON.stringify(action.arguments, null, 2)}</pre>{#if action.status === 'pending'}<div><button class="secondary-button" onclick={() => approveAction(action)}>Approve</button><button class="secondary-button danger-button" onclick={() => rejectAction(action)}>Reject</button></div>{:else}<p>Application was interrupted. Inspect the database before retrying.</p>{/if}</div>{/each}
-            {#if !pendingActions.length}<p class="muted">No changes are waiting for approval.</p>{/if}
-          </aside>
-        </div>
+        <AssistantWorkspace config={aiConfig} types={types} recordCount={liveEntries.length} initialPrompt={assistantPrompt} onSettings={() => navigate('settings')} onDataChanged={refreshCoreData} />
       {:else if !loading && active === 'settings'}
         <div class="page-head"><div><div class="section-kicker">Shape your workspace</div><h1>Settings & fields</h1><p>Define entity types, their fields and relationships.</p></div><button class="primary-button" onclick={startNewType}><Plus size={15} /> New entity type</button></div>
         <div class="section-heading first-section-heading"><h2>Record fields</h2><span>Choose a type to add a field</span></div>
@@ -884,7 +959,7 @@
         <div class="settings-card">
           <div><div class="section-kicker">Your choice of model</div><h2>Assistant provider</h2><p>The agent can browse records and imported files through bounded tools. Ollama stays local; each OpenRouter request needs explicit consent to share the data it reads. Keys stay in the OS credential store.</p></div>
           <div class="ai-settings-grid">
-            <label class="form-field"><span>Provider</span><select bind:value={aiConfig.provider} onchange={() => { aiConfig.model = ''; allowCloud = false; }}><option value="ollama">Ollama (local)</option><option value="openrouter">OpenRouter (cloud)</option></select></label>
+            <label class="form-field"><span>Provider</span><select bind:value={aiConfig.provider} onchange={() => { aiConfig.model = ''; }}><option value="ollama">Ollama (local)</option><option value="openrouter">OpenRouter (cloud)</option></select></label>
             <label class="form-field"><span>Model name</span><input bind:value={aiConfig.model} placeholder={aiConfig.provider === 'ollama' ? 'e.g. llama3.2' : 'e.g. openrouter/free'} /></label>
             <label class="form-field"><span>Write permissions</span><select bind:value={aiConfig.trust_mode}><option value="controlled">Review every write</option><option value="delegated">Unrestricted for chosen types</option></select></label>
             {#if aiConfig.trust_mode === 'delegated'}
@@ -940,26 +1015,71 @@
           <div class="list-panel">
             {#if activeType}
               <div class="view-tabs" aria-label="Saved table views">
-                {#each views as view (view.id)}<button class:active={currentView?.id === view.id} onclick={() => { currentViewId = view.id; selectedId = null; }}>{view.name}</button>{/each}
+                {#each views as view (view.id)}<button class:active={currentView?.id === view.id} onclick={() => { currentViewId = view.id; selectedId = null; viewPanel = null; viewPanelDraft = null; }} ondblclick={() => startViewEditor(view)} title="Double-click to rename or delete">{view.name}</button>{/each}
                 <button class="view-add" onclick={() => startViewEditor()}><Plus size={14} /> New view</button>
               </div>
             {/if}
             <div class="list-toolbar">
-              <label class="small-search"><Search size={15} /><input placeholder="Filter this view..." aria-label="Filter this view" bind:value={listQuery} /></label>
-              {#if activeType && currentView && !currentView.is_default}<button class="secondary-button" onclick={() => startViewEditor(currentView)}><SlidersHorizontal size={14} /> Configure view</button>{/if}
-              <span class="muted" style="font-size:11px">{activeType ? tableCount : visibleEntries.length} shown</span>
+              <label class="small-search"><Search size={15} /><input placeholder="Search rows..." aria-label="Search rows" bind:value={listQuery} /></label>
+              {#if activeType && currentView}<div class="table-view-tools">
+                <button class:active={viewPanel === 'filter'} onclick={() => openViewPanel('filter')}>Filter</button>
+                <button class:active={viewPanel === 'sort'} onclick={() => openViewPanel('sort')}>Sort</button>
+                <button class:active={viewPanel === 'group'} onclick={() => openViewPanel('group')}>Group</button>
+                <button class:active={viewPanel === 'properties'} onclick={() => openViewPanel('properties')}>Properties</button>
+              </div>{/if}
+              <span class="muted table-shown">{activeType ? tableCount : visibleEntries.length} shown</span>
             </div>
-            {#if activeType && currentView && tableCount}
+            {#if activeType && viewPanel && viewPanelDraft}
+              <div class="view-control-panel">
+                <div class="view-control-heading"><strong>{viewPanel === 'filter' ? 'Filter rows' : viewPanel === 'sort' ? 'Sort rows' : viewPanel === 'group' ? 'Group rows' : 'Visible properties'}</strong><button class="icon-button" aria-label="Close view controls" onclick={() => { viewPanel = null; viewPanelDraft = null; }}><X size={15} /></button></div>
+                {#if viewPanel === 'filter' && viewPanelDraft.filter_tree}
+                  <div class="filter-group-editor">
+                    <label>Match <select bind:value={viewPanelDraft.filter_tree.mode}><option value="and">all</option><option value="or">any</option></select> conditions</label>
+                    {#each viewPanelDraft.filter_tree.rules as rule, index}
+                      <div class="view-rule"><select bind:value={rule.field}>{#each activeViewFields as field}<option value={field}>{fieldLabel(activeType, field)}</option>{/each}</select><select bind:value={rule.operator}><option value="contains">contains</option><option value="equals">is</option><option value="not_equals">is not</option><option value="is_empty">is empty</option><option value="greater_than">greater than / after</option><option value="less_than">less than / before</option></select>{#if rule.operator !== 'is_empty'}<input aria-label="Filter value" bind:value={rule.value} placeholder="Value" />{/if}<button class="icon-button" aria-label="Remove condition" onclick={() => { if (viewPanelDraft?.filter_tree) viewPanelDraft.filter_tree.rules.splice(index, 1); }}><X size={14} /></button></div>
+                    {/each}
+                    {#each viewPanelDraft.filter_tree.groups as group, groupIndex}
+                      <div class="nested-filter-group">
+                        <div class="nested-filter-heading"><label>Group matches <select bind:value={group.mode}><option value="and">all</option><option value="or">any</option></select></label><button class="icon-button" aria-label="Remove filter group" onclick={() => { if (viewPanelDraft?.filter_tree) viewPanelDraft.filter_tree.groups.splice(groupIndex, 1); }}><X size={14} /></button></div>
+                        {#each group.rules as rule, ruleIndex}<div class="view-rule"><select bind:value={rule.field}>{#each activeViewFields as field}<option value={field}>{fieldLabel(activeType, field)}</option>{/each}</select><select bind:value={rule.operator}><option value="contains">contains</option><option value="equals">is</option><option value="not_equals">is not</option><option value="is_empty">is empty</option><option value="greater_than">greater than / after</option><option value="less_than">less than / before</option></select>{#if rule.operator !== 'is_empty'}<input aria-label="Filter value" bind:value={rule.value} placeholder="Value" />{/if}<button class="icon-button" aria-label="Remove condition" onclick={() => group.rules.splice(ruleIndex, 1)}><X size={14} /></button></div>{/each}
+                        <button class="view-text-button" onclick={() => group.rules.push(newFilterRule())}><Plus size={13} /> Add condition to group</button>
+                      </div>
+                    {/each}
+                    <div class="view-control-actions"><button class="view-text-button" onclick={() => filterTree()?.rules.push(newFilterRule())}><Plus size={13} /> Add condition</button><button class="view-text-button" onclick={addFilterGroup}><Plus size={13} /> Add group</button></div>
+                  </div>
+                {:else if viewPanel === 'sort'}
+                  {#each viewPanelDraft.sorts as sort, index}<div class="view-rule"><span class="sort-order">{index + 1}</span><select bind:value={sort.field}>{#each activeViewFields as field}<option value={field}>{fieldLabel(activeType, field)}</option>{/each}</select><select bind:value={sort.direction}><option value="asc">Ascending</option><option value="desc">Descending</option></select><button class="icon-button" aria-label="Move sort up" disabled={index === 0} onclick={() => { if (viewPanelDraft) [viewPanelDraft.sorts[index - 1], viewPanelDraft.sorts[index]] = [viewPanelDraft.sorts[index], viewPanelDraft.sorts[index - 1]]; }}>↑</button><button class="icon-button" aria-label="Remove sort" onclick={() => viewPanelDraft?.sorts.splice(index, 1)}><X size={14} /></button></div>{/each}
+                  <button class="view-text-button" onclick={() => viewPanelDraft?.sorts.push({ field: 'title', direction: 'asc' })}><Plus size={13} /> Add sort</button>
+                {:else if viewPanel === 'group'}
+                  <label class="form-field"><span>Group by property</span><select value={viewPanelDraft.group_by ?? ''} onchange={(event) => { if (viewPanelDraft) viewPanelDraft.group_by = event.currentTarget.value || null; }}><option value="">No grouping</option>{#each activeViewFields as field}<option value={field}>{fieldLabel(activeType, field)}</option>{/each}</select></label>
+                {:else if viewPanel === 'properties'}
+                  <div class="view-column-options">{#each activeViewFields as field}<label><input type="checkbox" checked={viewPanelDraft.columns.includes(field)} disabled={field === 'title'} onchange={() => { if (!viewPanelDraft || field === 'title') return; viewPanelDraft.columns = viewPanelDraft.columns.includes(field) ? viewPanelDraft.columns.filter((column) => column !== field) : [...viewPanelDraft.columns, field]; }} />{fieldLabel(activeType, field)}</label>{/each}</div>
+                  <button class="view-text-button" onclick={() => startFieldEditor(activeType)}><Plus size={13} /> Add property to {activeType.label}</button>
+                {/if}
+                <div class="view-control-footer"><span>Changes affect only this view.</span><button class="primary-button" onclick={saveViewPanel}><Check size={13} /> Apply to view</button></div>
+              </div>
+            {/if}
+            {#if activeType && currentView}
               <div class="table-scroll">
                 {#each tableGroups as group (group.key)}
                   {#if currentView.config.group_by}<div class="table-group-heading">{group.key} <span>{group.rows.length}</span></div>{/if}
-                  <table class="entity-table"><thead><tr>{#each currentView.config.columns as column}<th>{fieldLabel(activeType, column)}</th>{/each}</tr></thead>
+                  <table class="entity-table"><thead><tr>{#each currentView.config.columns as column}<th draggable={column !== 'title'} class:dragging={draggedColumn === column} style:width={currentView.config.column_widths?.[column] ? String(currentView.config.column_widths[column]) + 'px' : undefined} ondragstart={() => draggedColumn = column} ondragend={() => draggedColumn = null} ondragover={(event) => event.preventDefault()} ondrop={() => { if (draggedColumn) void reorderColumn(draggedColumn, column); draggedColumn = null; }}><button class="table-column-name" onclick={() => openViewPanel('sort')}>{fieldLabel(activeType, column)}</button><button class="column-resize" aria-label={'Resize ' + fieldLabel(activeType, column)} onpointerdown={(event) => startColumnResize(event, column)} onkeydown={(event) => resizeColumnWithKeyboard(event, column)}></button></th>{/each}</tr></thead>
                     <tbody>{#each group.rows as entry (entry.id)}<tr class:selected={selectedId === entry.id}>
-                      {#each currentView.config.columns as column}<td>{#if column === 'title'}<button class="table-title" onclick={() => choose(entry)}>{entry.title}</button>{:else}{displayValue(cellValue(entry, column, relationIndex))}{/if}</td>{/each}
+                      {#each currentView.config.columns as column}<td>
+                        {#if editingCell?.id === entry.id && editingCell.field === column}
+                          {#if fieldKind(column) === 'select'}<select use:focusCell aria-label={'Edit ' + fieldLabel(activeType, column)} bind:value={cellDraft} onchange={saveCell} onblur={saveCell}><option value="">Empty</option>{#each fieldOptions(column) as option}<option value={option}>{option}</option>{/each}</select>
+                          {:else if fieldKind(column) === 'boolean'}<select use:focusCell aria-label={'Edit ' + fieldLabel(activeType, column)} bind:value={cellDraft} onchange={saveCell} onblur={saveCell}><option value="">Empty</option><option value="true">Yes</option><option value="false">No</option></select>
+                          {:else}<input use:focusCell aria-label={'Edit ' + fieldLabel(activeType, column)} type={fieldKind(column) === 'number' ? 'number' : fieldKind(column) === 'date' ? 'date' : fieldKind(column) === 'url' ? 'url' : 'text'} bind:value={cellDraft} onkeydown={(event) => { if (event.key === 'Enter') void saveCell(); if (event.key === 'Escape') editingCell = null; }} onblur={saveCell} />{/if}
+                        {:else if column === 'title'}<button class="table-title" onclick={() => choose(entry)} ondblclick={() => startCellEdit(entry, column)}>{entry.title}</button>
+                        {:else if column === 'updated_at'}{displayValue(cellValue(entry, column, relationIndex))}
+                        {:else}<button class="table-cell-button" onclick={() => startCellEdit(entry, column)}>{displayValue(cellValue(entry, column, relationIndex))}</button>{/if}
+                      </td>{/each}
                     </tr>{/each}</tbody>
                   </table>
                 {/each}
+                {#if !tableGroups.length}<div class="table-no-results">No rows match this view.</div>{/if}
               </div>
+              <button class="table-add-row" onclick={() => startCreate(activeType.key)}><Plus size={14} /> New row</button>
             {:else if !activeType && visibleEntries.length}
               {#each visibleEntries as entry}
                 <button class:selected={selectedId === entry.id} class="record-row" onclick={() => choose(entry)}>
@@ -1134,14 +1254,7 @@
     <div class="dialog view-dialog" role="dialog" aria-modal="true" aria-label="Configure table view">
       <div class="dialog-head"><div><div class="section-kicker">{viewKind.label} table</div><h2>{viewDraft.id ? 'Edit view' : 'New view'}</h2></div><button class="icon-button" aria-label="Close" onclick={() => viewDraft = null}><X size={18} /></button></div>
       <label class="form-field"><span>View name</span><input bind:value={viewDraft.name} placeholder="e.g. Fall 2027 shortlist" /></label>
-      <div class="view-editor-section"><h3>Columns</h3><div class="view-column-options">{#each viewFields as field}<label><input type="checkbox" checked={viewDraft.config.columns.includes(field)} disabled={field === 'title'} onchange={() => toggleViewColumn(field)} />{fieldLabel(viewKind, field)}</label>{/each}</div></div>
-      <div class="view-editor-section"><div class="section-heading"><h3>Filters</h3><button class="secondary-button" onclick={() => viewDraft?.config.filters.push({ field: 'title', operator: 'contains', value: '' })}><Plus size={13} /> Add filter</button></div><p class="muted">Records must match every filter.</p>
-        {#each viewDraft.config.filters as filter, index}<div class="view-rule"><select bind:value={filter.field}>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select><select bind:value={filter.operator}><option value="contains">contains</option><option value="equals">equals</option><option value="not_equals">does not equal</option><option value="is_empty">is empty</option><option value="greater_than">greater than / after</option><option value="less_than">less than / before</option></select>{#if filter.operator !== 'is_empty'}<input bind:value={filter.value} placeholder="Value" />{/if}<button class="icon-button" aria-label="Remove filter" onclick={() => { if (viewDraft) viewDraft.config.filters = viewDraft.config.filters.filter((_, i) => i !== index); }}><X size={15} /></button></div>{/each}
-      </div>
-      <div class="view-editor-section"><div class="section-heading"><h3>Sort</h3><button class="secondary-button" onclick={() => viewDraft?.config.sorts.push({ field: 'title', direction: 'asc' })}><Plus size={13} /> Add sort</button></div>
-        {#each viewDraft.config.sorts as sort, index}<div class="view-rule"><select bind:value={sort.field}>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select><select bind:value={sort.direction}><option value="asc">Ascending</option><option value="desc">Descending</option></select><button class="icon-button" aria-label="Remove sort" onclick={() => { if (viewDraft) viewDraft.config.sorts = viewDraft.config.sorts.filter((_, i) => i !== index); }}><X size={15} /></button></div>{/each}
-      </div>
-      <div class="view-editor-section"><label class="form-field"><span>Group by</span><select value={viewDraft.config.group_by ?? ''} onchange={(event) => { if (viewDraft) viewDraft.config.group_by = event.currentTarget.value || null; }}><option value="">No grouping</option>{#each viewFields as field}<option value={field}>{fieldLabel(viewKind, field)}</option>{/each}</select></label></div>
+      <p class="muted">The new view starts with the current table layout. Use Filter, Sort, Group and Properties above the table to customize it.</p>
       {#if error}<div class="error-box" role="alert">{error}</div>{/if}
       <div class="dialog-footer">{#if viewDraft.id}<button class="secondary-button danger-button" onclick={removeView}>Delete view</button>{/if}<button class="secondary-button" onclick={() => viewDraft = null}>Cancel</button><button class="primary-button" onclick={saveView}>Save view</button></div>
     </div>
