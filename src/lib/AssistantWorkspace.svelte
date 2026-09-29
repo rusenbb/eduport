@@ -35,7 +35,17 @@
     ? config.delegated_types.map((key: string) => types.find((type: RecordType) => type.key === key)?.label ?? key)
     : []);
 
-  onMount(() => { prompt = initialPrompt; void initialize(); });
+  onMount(() => {
+    prompt = initialPrompt;
+    void initialize();
+    const refreshPending = () => { void api.listAgentActions().then((value) => pendingActions = value).catch(() => {}); };
+    const interval = window.setInterval(refreshPending, 5000);
+    window.addEventListener('focus', refreshPending);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshPending);
+    };
+  });
 
   function describe(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);

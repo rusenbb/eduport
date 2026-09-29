@@ -11,6 +11,7 @@ Eduport is a single-device desktop workspace for master's and PhD research and a
 - Preview and import an old Eduport Markdown vault or an Eduport export. Import merges into the current database only if IDs and files do not conflict. The source folder is left untouched, and legacy originals and attachments are retained. Export writes readable Markdown, a schema/relation manifest, and managed files.
 - Tool-using assistant with local Ollama or cloud OpenRouter. Chats, messages, model choices, tool steps, and write decisions persist in SQLite; chats can be renamed and archived. The agent can read entity data and imported files through bounded, paginated tools. Cloud requests require consent to share the conversation and any records or files the agent reads for that turn. Writes to chosen entity types can be unrestricted; writes to other types enter a persistent approval queue. Links need permission for both endpoint types. Permanent deletion and mail sending are unavailable to the agent.
 - Gmail connection using a Google Desktop OAuth client, PKCE, and the read-only Gmail scope. Search, select up to 20 messages, preview, and import them. The original `.eml` is retained for export. Re-importing the same message for one account is blocked by a unique key. Gmail is the first mail provider adapter; the app has no mail sending or background inbox sync.
+- Local MCP server over standard input/output. It exposes the same bounded database read tools as the assistant. Write tools are available only when the server is started with `--allow-writes`; each write still follows Eduport's per-entity permissions or enters the approval queue.
 
 ## Run locally
 
@@ -24,6 +25,12 @@ npm run tauri dev
 For browser-based development, run `npm run dev` and open `http://127.0.0.1:1420/`. This starts a loopback-only Rust API alongside Vite. The browser and desktop app use the **same local SQLite database**, so records and sidebar order survive reloads. Native file dialogs and Gmail sign-in remain desktop-only.
 
 For isolated development, `EDUPORT_DB_PATH`, `EDUPORT_DEV_PORT`, and `EDUPORT_DEV_API_PORT` override the database path and loopback ports.
+
+## MCP server
+
+Build the separate MCP executable with `npm run mcp:build`. On this Mac the result is `src-tauri/target/release/eduport-mcp`. Configure your MCP client to launch that executable over stdio. By default it opens Eduport's local app-data SQLite database and offers read tools only; it never opens a network port. Use `--db /absolute/path/to/eduport.sqlite` or `EDUPORT_DB_PATH` to select another database.
+
+Add `--allow-writes` to the client command only if you want it to propose changes. Eduport's controlled mode queues every write for review; delegated mode applies writes only to entity types you explicitly allowed. This flag does not allow sending email, permanent deletion, credential access, or arbitrary SQL. Open the Assistant page to review pending MCP changes. The MCP executable is built separately from the `.app` bundle.
 
 `npm run check`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml` verify the frontend and Rust core. On macOS, `npm run tauri build -- --bundles app` produces `src-tauri/target/release/bundle/macos/Eduport.app`. The local bundle uses an ad hoc signature. Public distribution requires your own Apple signing and notarization setup.
 

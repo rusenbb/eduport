@@ -347,6 +347,42 @@ fn is_write_tool(name: &str) -> bool {
     )
 }
 
+pub fn mcp_tool_definitions(allow_writes: bool) -> Vec<Value> {
+    tool_definitions()
+        .into_iter()
+        .filter(|tool| {
+            allow_writes
+                || !tool
+                    .pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_write_tool)
+        })
+        .collect()
+}
+
+pub fn mcp_call(
+    db: &mut Db,
+    name: &str,
+    args: &Value,
+    allow_writes: bool,
+) -> Result<Value, String> {
+    let known = tool_definitions()
+        .into_iter()
+        .any(|tool| tool.pointer("/function/name").and_then(Value::as_str) == Some(name));
+    if !known {
+        return Err("Unknown Eduport tool.".into());
+    }
+    if is_write_tool(name) {
+        if !allow_writes {
+            return Err("This MCP server was started without write tools.".into());
+        }
+        let config = ai::load_config(db)?;
+        as_value(run_write(db, &config, name, args, None)?)
+    } else {
+        run_read(db, name, args)
+    }
+}
+
 fn run_write(
     db: &mut Db,
     initial: &AiConfig,
