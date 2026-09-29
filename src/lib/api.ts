@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AiConfig, AiResult, AgentAction, ActionOutcome, ChatEvent, ChatMessage, ChatSession, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput } from './types';
+import type { AiConfig, AiResult, AgentAction, ActionOutcome, ChatEvent, ChatMessage, ChatSession, Entry, EntryInput, GmailAccount, GmailMessage, ImportPreview, JsonImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput } from './types';
 
 export const inDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -50,6 +50,12 @@ export const api = {
     invokeApp<string | null>('export_markdown'),
   backupDatabase: () =>
     invokeApp<string | null>('backup_database'),
+  exportJsonBackup: (includeHistory: boolean) =>
+    invokeApp<string | null>('export_json_backup', { includeHistory }),
+  previewJsonImport: () =>
+    invokeApp<JsonImportPreview | null>('preview_json_import'),
+  applyJsonImport: (fingerprint: string) =>
+    invokeApp<number>('apply_json_import', { fingerprint }),
   getAiConfig: () =>
     invokeApp<AiConfig>('get_ai_config'),
   putAiConfig: (config: AiConfig) =>

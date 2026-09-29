@@ -80,6 +80,15 @@ export interface ImportPreview {
   blockers: string[];
 }
 
+export interface JsonImportPreview {
+  fingerprint: string;
+  record_count: number;
+  file_count: number;
+  chat_count: number;
+  action_count: number;
+  blockers: string[];
+}
+
 export interface AiConfig {
   provider: 'ollama' | 'openrouter';
   model: string;

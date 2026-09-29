@@ -139,6 +139,8 @@ h3 { font-size: 17px; margin-bottom: 0; }
 .settings-card h2 { margin: 8px 0; }
 .settings-card p { font-size: 12px; color: #728477; max-width: 620px; line-height: 1.65; margin: 0; }
 .settings-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.json-history-option { display: flex; align-items: flex-start; gap: 8px; margin: 13px 0; color: #68776b; font-size: 11px; line-height: 1.5; }
+.json-history-option input { margin-top: 2px; }
 .import-preview { flex-basis: 100%; background: white; border: 1px solid #dbe5d9; border-radius: 8px; padding: 17px; }
 .import-preview strong { font-size: 13px; }
 .import-preview p { max-width: none; margin: 7px 0 14px; }

@@ -10,7 +10,7 @@
   import AssistantWorkspace from '$lib/AssistantWorkspace.svelte';
   import { applyTableView, cellValue, displayValue } from '$lib/table';
   import type { RelationIndex } from '$lib/table';
-  import type { AiConfig, Entry, EntryInput, FieldDef, FilterGroup, FilterRule, GmailAccount, GmailMessage, ImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput, ViewConfig } from '$lib/types';
+  import type { AiConfig, Entry, EntryInput, FieldDef, FilterGroup, FilterRule, GmailAccount, GmailMessage, ImportPreview, JsonImportPreview, MailPreview, RecordType, Relation, RelationInput, RelationDefinition, RelationDefinitionInput, TableView, TableViewInput, ViewConfig } from '$lib/types';
 
   let types = $state<RecordType[]>([]);
   let entries = $state<Entry[]>([]);
@@ -42,6 +42,8 @@
   let tagText = $state('');
   let editingType = $state<RecordType | null>(null);
   let importPreview = $state<ImportPreview | null>(null);
+  let jsonImportPreview = $state<JsonImportPreview | null>(null);
+  let includeJsonHistory = $state(true);
   let relationOpen = $state(false);
   let aiConfig = $state<AiConfig>({ provider: 'ollama', model: '', trust_mode: 'controlled', delegated_types: [] });
   let openrouterKey = $state('');
@@ -635,6 +637,32 @@
     }
   }
 
+  async function exportJsonBackup() {
+    error = '';
+    try {
+      const path = await api.exportJsonBackup(includeJsonHistory);
+      if (path) notify('JSON backup saved to ' + path);
+    } catch (cause) { error = message(cause); }
+  }
+
+  async function previewJsonImport() {
+    error = '';
+    try {
+      jsonImportPreview = await api.previewJsonImport();
+    } catch (cause) { error = message(cause); }
+  }
+
+  async function applyJsonImport() {
+    if (!jsonImportPreview || jsonImportPreview.blockers.length) return;
+    error = '';
+    try {
+      const count = await api.applyJsonImport(jsonImportPreview.fingerprint);
+      jsonImportPreview = null;
+      await load();
+      notify(count + ' records imported from JSON');
+    } catch (cause) { error = message(cause); }
+  }
+
   async function saveAiConfig() {
     error = '';
     try {
@@ -931,13 +959,16 @@
           <div>
             <div class="section-kicker">Keep your work portable</div>
             <h2>Data & recovery</h2>
-            <p>Preview an old Eduport Markdown vault before importing. Export readable Markdown or save a consistent SQLite backup at any time.</p>
+            <p>Use JSON for a portable, round-trippable backup. Markdown stays a readable record export; SQLite is the fastest exact device restore. Imports are previewed and never overwrite existing IDs.</p>
           </div>
           <div class="settings-actions">
             <button class="secondary-button" disabled={!inDesktop} onclick={previewImport}>Import Markdown</button>
             <button class="secondary-button" disabled={!inDesktop} onclick={exportMarkdown}><Download size={14} /> Export Markdown</button>
+            <button class="secondary-button" disabled={!inDesktop} onclick={previewJsonImport}>Import JSON</button>
+            <button class="secondary-button" disabled={!inDesktop} onclick={exportJsonBackup}><Download size={14} /> Export JSON backup</button>
             <button class="secondary-button" disabled={!inDesktop} onclick={backupDatabase}>Back up database</button>
           </div>
+          <label class="json-history-option"><input type="checkbox" bind:checked={includeJsonHistory} /> Include assistant chats, tool steps and approval history in JSON backup. Provider keys and Gmail tokens remain in the OS credential store.</label>
           {#if !inDesktop}<small class="desktop-only-note">File dialogs are available in the desktop app. Records here use the same SQLite database.</small>{/if}
           {#if importPreview}
             <div class="import-preview">
@@ -953,6 +984,14 @@
               {#each importPreview.blockers as blocker}<p class="error-box">{blocker}</p>{/each}
               {#if importConflicts.length}<p class="error-box">{importConflicts.length} record IDs already exist in this workspace. Resolve the conflicts before importing.</p>{/if}
               <button class="primary-button" disabled={!!importPreview.blockers.length || !!importConflicts.length} onclick={applyImport}>Import these records</button>
+            </div>
+          {/if}
+          {#if jsonImportPreview}
+            <div class="import-preview">
+              <strong>Eduport JSON backup</strong>
+              <p>{jsonImportPreview.record_count} records, {jsonImportPreview.file_count} original files, {jsonImportPreview.chat_count} chats and {jsonImportPreview.action_count} agent actions. The selected file is unchanged; IDs already in this workspace block import.</p>
+              {#each jsonImportPreview.blockers as blocker}<p class="error-box">{blocker}</p>{/each}
+              <button class="primary-button" disabled={!!jsonImportPreview.blockers.length} onclick={applyJsonImport}>Import JSON data</button>
             </div>
           {/if}
         </div>

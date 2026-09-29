@@ -7,9 +7,11 @@ use uuid::Uuid;
 
 mod chats;
 mod relations_schema;
+mod snapshot;
 mod views;
 pub use chats::{ChatEvent, ChatMessage, ChatSession};
 pub use relations_schema::{RelationDefinition, RelationDefinitionInput};
+pub use snapshot::{JsonBundle, JsonBundleFile};
 pub use views::{FilterGroup, FilterRule, SortRule, TableView, TableViewInput, ViewConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -870,7 +872,7 @@ impl Db {
                 )));
             }
         }
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         for definition in &merged_types {
             tx.execute(
                 "INSERT INTO record_types(key, label, icon, fields_json, built_in)

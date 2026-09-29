@@ -13,12 +13,30 @@ use db::{
     RelationDefinition, RelationDefinitionInput, RelationInput, TableView, TableViewInput,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 type DbState = Mutex<Db>;
 type PendingImport = Mutex<Option<portable::ImportPlan>>;
 type PendingMail = Mutex<Option<mail::PendingMail>>;
+type PendingJson = Mutex<Option<JsonImportPlan>>;
+
+#[derive(Clone, serde::Serialize)]
+struct JsonImportPreview {
+    fingerprint: String,
+    record_count: usize,
+    file_count: usize,
+    chat_count: usize,
+    action_count: usize,
+    blockers: Vec<String>,
+}
+
+struct JsonImportPlan {
+    path: std::path::PathBuf,
+    bundle: db::JsonBundle,
+    preview: JsonImportPreview,
+}
 
 fn with_db<T>(
     state: tauri::State<'_, DbState>,
@@ -230,6 +248,104 @@ fn backup_database(
     let path = file.into_path().map_err(|e| e.to_string())?;
     with_db(state, |db| db.backup_to(&path))?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+fn export_json_backup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbState>,
+    include_history: bool,
+) -> Result<Option<String>, String> {
+    let Some(file) = app
+        .dialog()
+        .file()
+        .add_filter("Eduport JSON backup", &["json"])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    let parent = path.parent().ok_or("Choose a backup destination.")?;
+    let bundle = with_db(state, |db| db.export_json_bundle(include_history))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    serde_json::to_writer_pretty(&mut staged, &bundle).map_err(|e| e.to_string())?;
+    staged.as_file_mut().sync_all().map_err(|e| e.to_string())?;
+    staged.persist_noclobber(&path).map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+fn preview_json_import(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbState>,
+    pending: tauri::State<'_, PendingJson>,
+) -> Result<Option<JsonImportPreview>, String> {
+    let Some(file) = app
+        .dialog()
+        .file()
+        .add_filter("Eduport JSON backup", &["json"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let fingerprint = format!("{:x}", Sha256::digest(&bytes));
+    let bundle: db::JsonBundle = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let copy = temp.path().join("preview.sqlite");
+    with_db(state, |db| db.backup_to(&copy))?;
+    let mut probe = Db::open(&copy).map_err(|e| e.to_string())?;
+    let blockers = probe
+        .import_json_bundle(&bundle)
+        .err()
+        .map(|error| vec![error.to_string()])
+        .unwrap_or_default();
+    let preview = JsonImportPreview {
+        fingerprint,
+        record_count: bundle.records.len(),
+        file_count: bundle.files.len(),
+        chat_count: bundle.chats.len(),
+        action_count: bundle.actions.len(),
+        blockers,
+    };
+    *pending
+        .lock()
+        .map_err(|_| "JSON import lock poisoned".to_string())? = Some(JsonImportPlan {
+        path,
+        bundle,
+        preview: preview.clone(),
+    });
+    Ok(Some(preview))
+}
+
+#[tauri::command]
+fn apply_json_import(
+    state: tauri::State<'_, DbState>,
+    pending: tauri::State<'_, PendingJson>,
+    fingerprint: String,
+) -> Result<usize, String> {
+    let plan = {
+        let mut guard = pending
+            .lock()
+            .map_err(|_| "JSON import lock poisoned".to_string())?;
+        if guard.as_ref().map(|item| item.preview.fingerprint.as_str())
+            != Some(fingerprint.as_str())
+        {
+            return Err("Preview this JSON file again before importing.".into());
+        }
+        guard.take().ok_or("No pending JSON import.")?
+    };
+    if !plan.preview.blockers.is_empty() {
+        return Err("Resolve the preview blockers before importing.".into());
+    }
+    let current = std::fs::read(&plan.path).map_err(|e| e.to_string())?;
+    if format!("{:x}", Sha256::digest(&current)) != plan.preview.fingerprint {
+        return Err("The JSON backup changed after preview. Preview it again.".into());
+    }
+    let count = plan.bundle.records.len();
+    with_db(state, |db| db.import_json_bundle(&plan.bundle))?;
+    Ok(count)
 }
 
 #[tauri::command]
@@ -477,6 +593,7 @@ pub fn run() {
             app.manage::<DbState>(Mutex::new(db));
             app.manage::<PendingImport>(Mutex::new(None));
             app.manage::<PendingMail>(Mutex::new(None));
+            app.manage::<PendingJson>(Mutex::new(None));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -502,6 +619,9 @@ pub fn run() {
             apply_markdown_import,
             export_markdown,
             backup_database,
+            export_json_backup,
+            preview_json_import,
+            apply_json_import,
             get_ai_config,
             put_ai_config,
             set_openrouter_key,
